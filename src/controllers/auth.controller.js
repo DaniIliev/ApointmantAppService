@@ -3,9 +3,11 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import Business from "../models/Business.js";
 import { generateQrDataUrl } from "../utils/qrcode.js";
+import mongoose from "mongoose";
+
 export const register = async (req, res, next) => {
   try {
-    const { email, password, role, phone } = req.body;
+    const { email, password, role, phone, firstName, lastName } = req.body;
     if (!email || !password || !role)
       return res
         .status(400)
@@ -15,7 +17,14 @@ export const register = async (req, res, next) => {
       return res.status(409).json({ message: "Email вече съществува" });
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.create({ email, passwordHash, role, phone });
+    const user = await User.create({
+      email,
+      passwordHash,
+      role,
+      phone,
+      firstName,
+      lastName,
+    });
     let business;
     if (role == "business") {
       const { name, address, phone } = req.body;
@@ -38,6 +47,8 @@ export const register = async (req, res, next) => {
       id: user._id,
       email: user.email,
       role: user.role,
+      firstName,
+      lastName,
       createdAt: user.createdAt,
     };
     if (business) {
@@ -68,22 +79,40 @@ export const login = async (req, res, next) => {
     );
     res.json({
       token,
-      user: { id: user._id, email: user.email, role: user.role },
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
     });
   } catch (e) {
     next(e);
   }
 };
 
-// export const test = async (req, res, next) => {
-//   try {
-//     const link = `${process.env.CLIENT_URL}/book/68acc34db102950dab12a9a1`;
-//     const qrCodeUrl = await generateQrDataUrl(link);
-//     console.log("qrCodeUrl", qrCodeUrl);
-//     res.json({
-//       qrCodeUrl,
-//     });
-//   } catch (e) {
-//     next(e);
-//   }
-// };
+export const getUserById = async (req, res, next) => {
+  const { id } = req.params;
+
+  try {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid ID format" });
+    }
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+    });
+  } catch (error) {
+    next(e);
+  }
+};

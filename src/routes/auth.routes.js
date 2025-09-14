@@ -1,5 +1,9 @@
 import express from "express";
-import { register, login } from "../controllers/auth.controller.js";
+import {
+  register,
+  login,
+  getUserById,
+} from "../controllers/auth.controller.js";
 
 const router = express.Router();
 
@@ -52,6 +56,26 @@ router.post("/register", register);
  *       200: { description: Връща JWT }
  */
 router.post("/login", login);
-// router.get("/qr", test);
+
+/**
+ * @swagger
+ * /auth/user/:id:
+ *   post:
+ *     summary: Get user by id
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email: { type: string }
+ *               password: { type: string }
+ *     responses:
+ *       200: { description: Връща JWT }
+ */
+router.get("/user/:id", getUserById);
 
 export default router;
