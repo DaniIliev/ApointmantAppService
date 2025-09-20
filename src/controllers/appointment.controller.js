@@ -5,7 +5,7 @@ import Alert from "../models/Alert.js";
 import StaffSchedule from "../models/StaffSchedule.js";
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
 import moment from "moment";
-import { io } from "../app.js";
+import { io } from "../index.js";
 export const getDashboardData = async (req, res) => {
   try {
     let appointments;
