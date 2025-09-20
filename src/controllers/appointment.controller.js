@@ -226,3 +226,66 @@ export const getFreeSlots = async (req, res, next) => {
     next(e);
   }
 };
+
+export const getClosestAvailableSlot = async (req, res, next) => {
+  try {
+    const { staffId, serviceId } = req.query;
+
+    if (!staffId || !serviceId) {
+      return res.status(400).json({ message: "Missing required parameters." });
+    }
+
+    const service = await Service.findById(serviceId);
+    if (!service) {
+      return res.status(404).json({ message: "Service not found." });
+    }
+    const serviceDuration = service.duration;
+
+    let closestSlot = null;
+    let daysToSearch = 20; // Search for the next 20 days
+    let foundDateObject = null; // Ще съхранява moment обект
+
+    for (let i = 0; i < daysToSearch; i++) {
+      const searchDateMoment = moment().add(i, "days");
+      const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
+
+      const { slots } = await getAvailableSlots(
+        staffId,
+        searchDate,
+        serviceDuration
+      );
+
+      const now = moment();
+      const availableToday =
+        i === 0
+          ? slots.filter((slot) =>
+              moment(`${searchDate}T${slot.startTime}`).isAfter(now)
+            )
+          : slots;
+
+      if (availableToday.length > 0) {
+        closestSlot = availableToday[0];
+        foundDateObject = searchDateMoment;
+        break;
+      }
+    }
+
+    if (closestSlot && foundDateObject) {
+      res.status(200).json({
+        slot: {
+          startTime: closestSlot.startTime,
+          endTime: closestSlot.endTime,
+          date: foundDateObject.format("DD.MM.YYYY"),
+        },
+        message: "Closest available slot found.",
+      });
+    } else {
+      res.status(200).json({
+        slot: null,
+        message: "No available slots found in the next 20 days.",
+      });
+    }
+  } catch (e) {
+    next(e);
+  }
+};
