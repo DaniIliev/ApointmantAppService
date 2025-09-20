@@ -2,7 +2,7 @@ import Appointment from "../models/Appointment.js";
 import Business from "../models/Business.js";
 import Service from "../models/Service.js";
 import Alert from "../models/Alert.js";
-import StaffSchedule from "../models/StaffSchedule.js";
+import { sendConfirmationEmail } from "../utils/EmailService.js";
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
 import moment from "moment";
 import { io } from "../index.js";

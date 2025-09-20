@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
 import Business from "../models/Business.js";
-import nodemailer from "nodemailer";
+import { inviteStaffEmail } from "../utils/EmailService.js";
 
 export const listBusinessStaff = async (req, res, next) => {
   try {
@@ -57,33 +57,13 @@ export const inviteStaff = async (req, res, next) => {
       businessId: business._id,
     });
 
-    // 5. Изпращане на имейл с временната парола
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: "appointmentappdi@gmail.com", // Твоят имейл адрес
-        pass: "gmaa swqn jvqh dudf", // Парола на приложението, генерирана от Google
-      },
-    });
-
-    const mailOptions = {
-      from: "appointmentappdi@gmail.com",
-      to: email,
-      subject: "Покана за присъединяване към екипа!",
-      html: `
-        <p>Здравейте, ${firstName} ${lastName},</p>
-        <p>Вие бяхте поканен да се присъедините към екипа на ${business.name}.</p>
-        <p>Ето вашите данни за вход:</p>
-        <ul>
-          <li><strong>Имейл:</strong> ${email}</li>
-          <li><strong>Временна парола:</strong> ${tempPassword}</li>
-        </ul>
-        <p>Моля, влезте в акаунта си и сменете паролата при първа възможност.</p>
-        <p>Поздрави,<br>${business.name}</p>
-      `,
-    };
-
-    await transporter.sendMail(mailOptions);
+    await inviteStaffEmail(
+      firstName,
+      lastName,
+      email,
+      tempPassword,
+      business.name
+    );
 
     res.status(201).json({
       message:

@@ -4,10 +4,10 @@ import nodemailer from "nodemailer";
 import moment from "moment";
 
 const transporter = nodemailer.createTransport({
-  service: "Gmail", // Може да се промени на SendGrid или друг
+  service: "gmail",
   auth: {
-    user: "вашият-имейл@gmail.com",
-    pass: "вашата-парола-за-приложение", // Използвайте парола за приложение
+    user: "appointmentappdi@gmail.com", // Твоят имейл адрес
+    pass: "gmaa swqn jvqh dudf", // Парола на приложението, генерирана от Google
   },
 });
 
@@ -41,6 +41,38 @@ export const sendConfirmationEmail = async (
                 <p>С уважение,<br/>Екипът на ${businessName}</p>
             </div>
         `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log("Confirmation email sent successfully.");
+  } catch (error) {
+    console.error("Failed to send confirmation email:", error);
+  }
+};
+
+export const inviteStaffEmail = async (
+  firstName,
+  lastName,
+  email,
+  tempPassword,
+  businessName
+) => {
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to: email,
+    subject: "Покана за присъединяване към екипа!",
+    html: `
+        <p>Здравейте, ${firstName} ${lastName},</p>
+        <p>Вие бяхте поканен да се присъедините към екипа на ${businessName}.</p>
+        <p>Ето вашите данни за вход:</p>
+        <ul>
+          <li><strong>Имейл:</strong> ${email}</li>
+          <li><strong>Временна парола:</strong> ${tempPassword}</li>
+        </ul>
+        <p>Моля, влезте в акаунта си и сменете паролата при първа възможност.</p>
+        <p>Поздрави,<br>${businessName}</p>
+      `,
   };
 
   try {
