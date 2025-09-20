@@ -13,7 +13,12 @@ const userSchema = new mongoose.Schema(
     firstName: { type: String, required: false },
     lastName: { type: String, required: false },
     phone: { type: String, required: true },
-    role: { type: String, enum: ["business", "personal"], required: true },
+    role: {
+      type: String,
+      enum: ["business", "personal", "staff"],
+      required: true,
+    },
+    businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
   },
   { timestamps: true }
 );
