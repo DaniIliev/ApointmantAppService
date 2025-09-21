@@ -13,18 +13,16 @@ import staffRoutes from "./routes/staff.routes.js";
 import appointmentRoutes from "./routes/appointment.routes.js";
 import staffScheduleRoutes from "./routes/staff-shedule.routes.js";
 import alertRoutes from "./routes/alert.routes.js";
+import chatbotRoutes from "./routes/chatbot.routes.js"; // <-- Импортираме новия рутер
 import { swaggerDocs } from "./config/swagger.js";
 import { notFound, errorHandler } from "./middlewares/error.js";
+import chatbot from "./chatbot/chatbot.js"; // <-- Импортираме чатбот инстанцията
 
-// Зареждане на променливите от .env файла
 dotenv.config();
 
-// Инициализиране на Express приложението
 const app = express();
-// Създаваме HTTP сървър, към който ще прикачим Express и Socket.IO
 const server = createServer(app);
 
-// Инициализираме Socket.IO върху нашия `server`
 export const io = new Server(server, {
   cors: {
     origin: process.env.CLIENT_URL || "*",
@@ -33,26 +31,20 @@ export const io = new Server(server, {
   },
 });
 
-// Обработка на Socket.IO връзки
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
-
-  // Клиентът може да изпрати своя потребителски ID, за да се присъедини към 'стая'
   socket.on("joinRoom", (userId) => {
     socket.join(userId);
     console.log(`User ${userId} joined room`);
   });
-
   socket.on("disconnect", () => {
     console.log("User disconnected");
   });
 });
 
-// Дефиниране на портове и URI
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI;
 
-// Middleware
 app.use(
   cors({
     origin: process.env.CLIENT_URL || "*",
@@ -60,15 +52,12 @@ app.use(
 );
 app.use(express.json());
 
-// Основен рутер за проверка на състоянието на API
 app.get("/", (req, res) => {
   res.send("🚀 Appointment API is running. Go to /api-docs for Swagger UI");
 });
 
-// Интеграция на Swagger
 swaggerDocs(app);
 
-// Рутери на API
 app.use("/api/auth", authRoutes);
 app.use("/api/business", businessRoutes);
 app.use("/api/service", serviceRoutes);
@@ -76,19 +65,16 @@ app.use("/api/appointment", appointmentRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/staff-schedules", staffScheduleRoutes);
 app.use("/api/alerts", alertRoutes);
+app.use("/api/chatbot", chatbotRoutes); // <-- Използваме рутера
 
-// Middleware за обработка на грешки
 app.use(notFound);
 app.use(errorHandler);
 
-// Асинхронна функция за свързване с базата данни и стартиране на сървъра
 (async () => {
   try {
     await mongoose.connect(MONGO_URI, { dbName: MONGO_URI.split("/").pop() });
     console.log("✅ MongoDB connected");
-
-    // Стартираме сървъра, използвайки `server.listen()`, а не `app.listen()`
-    // Това гарантира, че и Express, и Socket.IO слушат на един и същ порт.
+    await chatbot.initialize(); // <-- Вече не чакаме тук, а в рутера
     server.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
     });
