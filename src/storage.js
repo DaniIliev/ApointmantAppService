@@ -8,7 +8,7 @@ import cloudinary from "./cloudinaryConfig.js";
 //     folder: "appointments",
 //     allowed_formats: ["jpg", "png", "jpeg"],
 //   },
-// });
+// })
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary.v2,
   params: {
