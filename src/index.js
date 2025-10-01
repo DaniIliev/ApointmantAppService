@@ -65,7 +65,7 @@ app.use("/api/appointment", appointmentRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/staff-schedules", staffScheduleRoutes);
 app.use("/api/alerts", alertRoutes);
-app.use("/api/chatbot", chatbotRoutes); // <-- Използваме рутера
+app.use("/api/chatbot", chatbotRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
