@@ -74,7 +74,7 @@ app.use(errorHandler);
   try {
     await mongoose.connect(MONGO_URI, { dbName: MONGO_URI.split("/").pop() });
     console.log("✅ MongoDB connected");
-    await chatbot.initialize(); // <-- Вече не чакаме тук, а в рутера
+    await chatbot.initialize();
     server.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
     });
