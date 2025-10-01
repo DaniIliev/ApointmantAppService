@@ -72,7 +72,10 @@ app.use(errorHandler);
 
 (async () => {
   try {
-    await mongoose.connect(MONGO_URI, { dbName: MONGO_URI.split("/").pop() });
+    await mongoose.connect(MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
     console.log("✅ MongoDB connected");
     await chatbot.initialize();
     server.listen(PORT, () => {
