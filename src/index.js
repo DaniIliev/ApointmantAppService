@@ -16,7 +16,7 @@ import alertRoutes from "./routes/alert.routes.js";
 import chatbotRoutes from "./routes/chatbot.routes.js"; // <-- Импортираме новия рутер
 import { swaggerDocs } from "./config/swagger.js";
 import { notFound, errorHandler } from "./middlewares/error.js";
-import chatbot from "./chatbot/chatbot.js"; // <-- Импортираме чатбот инстанцията
+import chatbot from "./chatbot/chatbot.js";
 
 dotenv.config();
 
