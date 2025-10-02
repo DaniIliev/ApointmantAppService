@@ -47,7 +47,9 @@ const MONGO_URI = process.env.MONGO_URI;
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "*",
+    origin:
+      process.env.CLIENT_URL ||
+      "apointmantappservice-production.up.railway.app",
   })
 );
 app.use(express.json());
