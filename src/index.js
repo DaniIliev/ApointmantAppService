@@ -69,13 +69,10 @@ app.use("/api/chatbot", chatbotRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
-
+console.log("MONGO_URI:", MONGO_URI);
 (async () => {
   try {
-    await mongoose.connect(MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    await mongoose.connect(MONGO_URI);
     console.log("✅ MongoDB connected");
     await chatbot.initialize();
     server.listen(PORT, () => {
