@@ -12,7 +12,6 @@ const authMiddleware = (req, res, next) => {
   // 3. Верифицирай токена
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     // 4. Добави потребителските данни към обекта на заявката (req)
     req.user = decoded;
 

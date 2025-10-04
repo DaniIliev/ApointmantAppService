@@ -9,7 +9,7 @@ const createDefaultDailySchedule = async (
   startDate,
   endDate,
   workTime,
-  isDayOff,
+  isDayOff, // Очаква масив от стрингове с малки букви (e.g., ["saturday", "sunday"])
   break1,
   break2,
   break3
@@ -30,24 +30,28 @@ const createDefaultDailySchedule = async (
     breaks.push({ start: break3.start, end: break3.end });
   }
 
+  // Обхожда всички дни в периода
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     const dayOfWeek = d.getDay(); // 0 for Sunday, 1 for Monday
+    // Името на деня се превръща в малка буква за сравнение
     const dayName = [
-      "Sunday",
-      "Monday",
-      "Tuesday",
-      "Wednesday",
-      "Thursday",
-      "Friday",
-      "Saturday",
+      "sunday",
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday",
+      "saturday",
     ][dayOfWeek];
+
+    // Проверява дали денят е включен в масива с почивни дни
     const isThisDayOff = isDayOff.includes(dayName);
 
     workHours.push({
       day: dayName,
       date: new Date(d),
+      // isDayOff се запазва тук
       isDayOff: isThisDayOff,
-      // **FIXED:** Use a single 'workTime' object to match the schema.
       workTime: isThisDayOff
         ? null
         : { start: workTime.start, end: workTime.end },
@@ -58,7 +62,9 @@ const createDefaultDailySchedule = async (
   return await dailySchedule.save();
 };
 
-// GET /api/staff-schedules
+// -------------------------------------------------------------------
+
+// --- GET /api/staff-schedules ---
 export const getSchedules = async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -71,7 +77,9 @@ export const getSchedules = async (req, res, next) => {
   }
 };
 
-// GET /api/staff-schedules/:id/details
+// -------------------------------------------------------------------
+
+// --- GET /api/staff-schedules/:id/details ---
 export const getDailySchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -85,13 +93,16 @@ export const getDailySchedule = async (req, res, next) => {
     if (schedule.staff.toString() !== userId) {
       return res.status(403).json({ message: "Нямаш достъп до този график." });
     }
+    // Връща workHours, които трябва да съдържат и isDayOff
     res.status(200).json(schedule.dailySchedule.workHours);
   } catch (e) {
     next(e);
   }
 };
 
-// POST /api/staff-schedules
+// -------------------------------------------------------------------
+
+// --- POST /api/staff-schedules ---
 export const createSchedule = async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -115,18 +126,22 @@ export const createSchedule = async (req, res, next) => {
         .json({ message: "Служителят не е свързан с бизнес." });
     }
 
-    // Уверете се, че isDayOff е винаги масив
-    const daysOffArray = Array.isArray(isDayOff)
-      ? isDayOff
-      : isDayOff
-      ? [isDayOff]
-      : [];
+    // ✅ ФИКС: Логика за трансформация на isDayOff от обект в масив от стрингове (за DailySchedule)
+    const daysOffObject =
+      Array.isArray(isDayOff) && isDayOff.length > 0
+        ? isDayOff[0]
+        : isDayOff || {};
+
+    // Трансформираме обекта в масив от стрингове (имена на почивните дни с малки букви)
+    const daysOffArray = Object.keys(daysOffObject).filter(
+      (day) => daysOffObject[day] === true
+    );
 
     const dailyScheduleDoc = await createDefaultDailySchedule(
       startDate,
       endDate,
       workTime,
-      daysOffArray,
+      daysOffArray, // Подаваме КОРЕКТНО ФОРМАТИРАНИЯ масив
       break1,
       break2,
       break3
@@ -136,7 +151,7 @@ export const createSchedule = async (req, res, next) => {
       startDate,
       endDate,
       workTime,
-      isDayOff,
+      isDayOff: isDayOff, // Запазваме оригиналния формат за StaffSchedule
       break1,
       break2,
       break3,
@@ -151,29 +166,91 @@ export const createSchedule = async (req, res, next) => {
   }
 };
 
-// PUT /api/staff-schedules/:id
+// -------------------------------------------------------------------
+
+// --- PUT /api/staff-schedules/:id ---
 export const updateSchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const updateData = req.body;
 
-    const updatedSchedule = await StaffSchedule.findOneAndUpdate(
-      { _id: id, staff: userId },
-      req.body,
-      { new: true }
-    );
-    if (!updatedSchedule) {
+    // 1. Намиране на текущия график, за да знаем кой DailySchedule да изтрием/актуализираме
+    const currentSchedule = await StaffSchedule.findById(id);
+    if (!currentSchedule || currentSchedule.staff.toString() !== userId) {
       return res
         .status(404)
         .json({ message: "Графикът не е намерен или нямаш достъп." });
     }
+
+    // 2. Обновяване на StaffSchedule
+    // Използваме updateData, но НЕ включваме dailySchedule в него
+    const updatedSchedule = await StaffSchedule.findOneAndUpdate(
+      { _id: id, staff: userId },
+      updateData,
+      { new: true }
+    );
+
+    // 3. Актуализиране на DailySchedule, ако има промени в правилата за работа/почивка/почивни дни
+    const fieldsToTriggerDailyUpdate = [
+      "startDate",
+      "endDate",
+      "workTime",
+      "isDayOff",
+      "break1",
+      "break2",
+      "break3",
+    ];
+
+    // Проверява дали някое от ключовите полета е променено
+    const shouldUpdateDailySchedule = fieldsToTriggerDailyUpdate.some((field) =>
+      updateData.hasOwnProperty(field)
+    );
+
+    if (shouldUpdateDailySchedule) {
+      // ✅ ФИКС: Логика за трансформация на isDayOff за DailySchedule
+      const isDayOffNew = updateData.isDayOff || updatedSchedule.isDayOff;
+      const daysOffObject =
+        Array.isArray(isDayOffNew) && isDayOffNew.length > 0
+          ? isDayOffNew[0]
+          : isDayOffNew || {};
+      const daysOffArray = Object.keys(daysOffObject).filter(
+        (day) => daysOffObject[day] === true
+      );
+
+      // Изтриване на стария DailySchedule
+      await DailySchedule.findByIdAndDelete(currentSchedule.dailySchedule);
+
+      // Създаване на нов DailySchedule с новите правила
+      const newDailyScheduleDoc = await createDefaultDailySchedule(
+        updateData.startDate || updatedSchedule.startDate,
+        updateData.endDate || updatedSchedule.endDate,
+        updateData.workTime || updatedSchedule.workTime,
+        daysOffArray, // Използваме трансформирания масив
+        updateData.break1 || updatedSchedule.break1,
+        updateData.break2 || updatedSchedule.break2,
+        updateData.break3 || updatedSchedule.break3
+      );
+
+      // Обновяване на StaffSchedule с новия dailySchedule ID
+      await StaffSchedule.updateOne(
+        { _id: updatedSchedule._id },
+        { dailySchedule: newDailyScheduleDoc._id }
+      );
+
+      // Актуализиране на обекта, който връщаме, за консистентност
+      updatedSchedule.dailySchedule = newDailyScheduleDoc._id;
+    }
+
     res.status(200).json(updatedSchedule);
   } catch (e) {
     next(e);
   }
 };
 
-// PUT /api/staff-schedules/:id/details
+// -------------------------------------------------------------------
+
+// --- PUT /api/staff-schedules/:id/details ---
 export const updateDailySchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -199,6 +276,9 @@ export const updateDailySchedule = async (req, res, next) => {
   }
 };
 
+// -------------------------------------------------------------------
+
+// --- POST /api/staff-schedules/apply-to-all ---
 export const applyScheduleToAllStaff = async (req, res, next) => {
   try {
     const { scheduleId } = req.body;
@@ -225,11 +305,15 @@ export const applyScheduleToAllStaff = async (req, res, next) => {
     }
 
     for (const staff of staffUsers) {
+      // Пропускаме оригиналния потребител, който вече има графика
+      if (staff._id.toString() === userId) continue;
+
       const existingSchedule = await StaffSchedule.findOne({
         staff: staff._id,
       });
 
       if (existingSchedule) {
+        // Обновяваме само дневния график
         const staffDailySchedule = await DailySchedule.findById(
           existingSchedule.dailySchedule
         );
@@ -238,11 +322,13 @@ export const applyScheduleToAllStaff = async (req, res, next) => {
           await staffDailySchedule.save();
         }
       } else {
+        // Създаваме нов дневен график (DailySchedule)
         const newDailySchedule = new DailySchedule({
           workHours: dailySchedule.workHours,
         });
         await newDailySchedule.save();
 
+        // Създаваме нов основен график (StaffSchedule)
         const newStaffSchedule = new StaffSchedule({
           startDate: mainSchedule.startDate,
           endDate: mainSchedule.endDate,
@@ -267,7 +353,9 @@ export const applyScheduleToAllStaff = async (req, res, next) => {
   }
 };
 
-// DELETE /api/staff-schedules/:id
+// -------------------------------------------------------------------
+
+// --- DELETE /api/staff-schedules/:id ---
 export const deleteSchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
