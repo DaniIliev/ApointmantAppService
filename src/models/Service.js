@@ -7,16 +7,17 @@ const serviceSchema = new mongoose.Schema(
       ref: "Business",
       required: true,
     },
-    staffIds: [
+    staffs: [
       {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
+        _id: { type: mongoose.Schema.Types.ObjectId, ref: "Staff" },
+        name: { type: String },
       },
     ],
     name: { type: String, required: true },
     description: String,
     duration: { type: Number, required: true },
     price: { type: Number, required: true },
+    category: { type: String, required: true },
     imageUrl: String,
   },
   { timestamps: true }

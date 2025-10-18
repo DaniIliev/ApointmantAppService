@@ -11,7 +11,7 @@ import upload from "../storage.js";
 const router = express.Router({ mergeParams: true });
 
 router.post("/", authMiddleware, upload.single("imageUrl"), createService);
-router.get("/", authMiddleware, listServices);
+router.get("/", listServices);
 router.put(
   "/:serviceId",
   authMiddleware,

@@ -86,14 +86,14 @@ export const register = async (req, res, next) => {
     let business = null;
 
     if (role === "business") {
-      const { name, address, phone: businessPhone } = req.body;
-      if (!name)
-        return res.status(400).json({ message: "name е задължително" });
+      const { businessName, phone: businessPhone } = req.body;
+      if (!businessName)
+        return res.status(400).json({ message: "businessName е задължително" });
 
       business = await Business.create({
         owner: user.id,
-        name,
-        address,
+        businessName,
+        // address,
         phone: businessPhone,
       });
 

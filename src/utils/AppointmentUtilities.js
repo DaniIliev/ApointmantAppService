@@ -36,7 +36,9 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
       return { slots: [], message: "Служителят не работи на тази дата." };
     }
 
-    const staffServices = await Service.find({ staffIds: staffId });
+    const staffServices = await Service.find({
+      "staffs._id": staffId,
+    });
     if (!staffServices || staffServices.length === 0) {
       return { slots: [], message: "Служителят не предлага услуги." };
     }

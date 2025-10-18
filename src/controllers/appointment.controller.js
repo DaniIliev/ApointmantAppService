@@ -82,7 +82,7 @@ export const createAppointment = async (req, res, next) => {
         .json({ message: "Невалидна услуга за този бизнес" });
     }
 
-    if (!srv.staffIds.includes(staff)) {
+    if (!srv.staffs.filter((s) => s._id == staff_id)) {
       return res.status(400).json({
         message: "Избраният служител не може да извърши тази услуга.",
       });
@@ -232,7 +232,7 @@ export const getFreeSlots = async (req, res, next) => {
 export const getClosestAvailableSlot = async (req, res, next) => {
   try {
     const { staffId, serviceId } = req.query;
-
+    console.log("staffid", staffId);
     if (!staffId || !serviceId) {
       return res.status(400).json({ message: "Missing required parameters." });
     }

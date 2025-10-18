@@ -3,24 +3,40 @@ import Business from "../models/Business.js";
 
 export const createService = async (req, res, next) => {
   try {
-    const { name, description, duration, price, color, staffIds } = req.body;
+    // Извличаме полетата от тялото на заявката
+    const { name, description, duration, price, color, staffs, category } =
+      req.body;
     const imageUrl = req.file ? req.file.path : undefined;
+    let parsedStaffs = staffs;
+    if (staffs && typeof staffs === "string") {
+      try {
+        parsedStaffs = JSON.parse(staffs);
+      } catch (error) {
+        parsedStaffs = [];
+      }
+    }
+    if (!Array.isArray(parsedStaffs)) {
+      if (typeof parsedStaffs === "string" && parsedStaffs.length === 24) {
+        parsedStaffs = [{ _id: parsedStaffs }];
+      } else {
+        parsedStaffs = [];
+      }
+    }
 
-    // Намираме бизнеса по businessId на потребителя, независимо от ролята му
     const business = await Business.findById(req.user.businessId);
     if (!business) {
       return res.status(404).json({ message: "Бизнесът не е намерен." });
     }
-
     const service = await Service.create({
       business: business._id,
       name,
       description,
       duration,
+      category,
       price,
       color,
       imageUrl,
-      staffIds,
+      staffs: parsedStaffs,
     });
 
     res.status(201).json(service);
@@ -31,13 +47,8 @@ export const createService = async (req, res, next) => {
 
 export const listServices = async (req, res, next) => {
   try {
-    // Намираме бизнеса по businessId на потребителя
-    const business = await Business.findById(req.user.businessId);
-    if (!business) {
-      return res.status(404).json({ message: "Бизнесът не е намерен." });
-    }
-
-    const services = await Service.find({ business: business._id }).lean();
+    const { businessId } = req.query;
+    const services = await Service.find({ business: businessId }).lean();
     res.json(services);
   } catch (e) {
     next(e);
@@ -47,7 +58,7 @@ export const listServices = async (req, res, next) => {
 export const updateService = async (req, res, next) => {
   try {
     const { serviceId } = req.params;
-    const { name, description, duration, price, color } = req.body;
+    const { name, description, duration, price, color, category } = req.body;
     const imageUrl = req.file?.path;
     const serviceToUpdate = await Service.findById(serviceId);
     if (!serviceToUpdate) {
@@ -70,6 +81,7 @@ export const updateService = async (req, res, next) => {
     serviceToUpdate.duration = duration || serviceToUpdate.duration;
     serviceToUpdate.price = price || serviceToUpdate.price;
     serviceToUpdate.color = color || serviceToUpdate.color;
+    serviceToUpdate.category = category || serviceToUpdate.category;
 
     if (imageUrl) {
       serviceToUpdate.imageUrl = imageUrl;
