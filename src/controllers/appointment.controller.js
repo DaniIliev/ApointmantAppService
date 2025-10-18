@@ -44,6 +44,8 @@ export const getDashboardData = async (req, res) => {
           end: appointment.appointmentTime.end,
         },
         status: appointment.status,
+        service_id: appointment.service._id,
+        staff_id: appointment.staff,
       };
     });
     transformedAppointments.sort((a, b) => {
