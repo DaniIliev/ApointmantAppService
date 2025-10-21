@@ -46,9 +46,17 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI;
 
+// app.use(
+//   cors({
+//     origin: process.env.CLIENT_URL || "*",
+//   })
+// );
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "*",
+    origin: ["https://appointdi.netlify.app/", "http://localhost:3000"], // Замести това с URL-то на React приложението
+    methods: ["GET", "POST", "DELETE", "PATCH"],
+    allowedHeaders: ["Content-Type"],
+    credentials: true,
   })
 );
 app.use(express.json());
