@@ -15,6 +15,8 @@ import staffScheduleRoutes from "./routes/staff-shedule.routes.js";
 import performanceRoutes from "./routes/performance-data.routes.js";
 import alertRoutes from "./routes/alert.routes.js";
 import chatbotRoutes from "./routes/chatbot.routes.js";
+import stripeRoutes from "./routes/stripe.routes.js";
+import webhookRoutes from "./routes/webhook.routes.js";
 import { swaggerDocs } from "./config/swagger.js";
 import { notFound, errorHandler } from "./middlewares/error.js";
 import chatbot from "./chatbot/chatbot.js";
@@ -46,18 +48,23 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI;
 
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL || "*",
+  })
+);
 // app.use(
 //   cors({
-//     origin: process.env.CLIENT_URL || "*",
+//     origin: ["https://appointdi.netlify.app/", "http://localhost:3000"], // Замести това с URL-то на React приложението
+//     methods: ["GET", "POST", "DELETE", "PATCH"],
+//     allowedHeaders: ["Content-Type"],
+//     credentials: true,
 //   })
 // );
 app.use(
-  cors({
-    origin: ["https://appointdi.netlify.app/", "http://localhost:3000"], // Замести това с URL-то на React приложението
-    methods: ["GET", "POST", "DELETE", "PATCH"],
-    allowedHeaders: ["Content-Type"],
-    credentials: true,
-  })
+  "/api/v1/webhook",
+  express.raw({ type: "application/json" }),
+  webhookRoutes
 );
 app.use(express.json());
 
@@ -76,6 +83,7 @@ app.use("/api/staff-schedules", staffScheduleRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/chatbot", chatbotRoutes);
 app.use("/api/performance", performanceRoutes);
+app.use("/api/stripe", stripeRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

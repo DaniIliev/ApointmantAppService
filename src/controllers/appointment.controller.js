@@ -82,7 +82,7 @@ export const createAppointment = async (req, res, next) => {
         .json({ message: "Невалидна услуга за този бизнес" });
     }
 
-    if (!srv.staffs.filter((s) => s._id == staff_id)) {
+    if (!srv.staffs.filter((s) => s._id == staff)) {
       return res.status(400).json({
         message: "Избраният служител не може да извърши тази услуга.",
       });
@@ -108,7 +108,6 @@ export const createAppointment = async (req, res, next) => {
     const appointment = await Appointment.create({
       business,
       service,
-      // ПРОМЯНА: Използваме appointmentTime обект
       appointmentTime: {
         start: startDateTime,
         end: endDateTime,
@@ -138,7 +137,7 @@ export const createAppointment = async (req, res, next) => {
         },
       },
       message: "Имате нова заявка за записване на час.",
-      alertId: newAlert._id, // Send the new alert's ID
+      _id: newAlert._id, // Send the new alert's ID
     });
 
     res.status(201).json(appointment);
@@ -250,13 +249,13 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     for (let i = 0; i < daysToSearch; i++) {
       const searchDateMoment = moment().add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
-
+      // console.log(staffId, searchDate, serviceDuration);
       const { slots } = await getAvailableSlots(
         staffId,
         searchDate,
         serviceDuration
       );
-
+      // console.log("slots", slots);
       const now = moment();
       const availableToday =
         i === 0

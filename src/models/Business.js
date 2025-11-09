@@ -1,20 +1,3 @@
-// import mongoose from "mongoose";
-
-// const businessSchema = new mongoose.Schema(
-//   {
-//     owner: {
-//       type: mongoose.Schema.Types.ObjectId,
-//       ref: "User",
-//       required: true,
-//     },
-//     name: { type: String, required: true, trim: true },
-//     address: String,
-//     qrCodeUrl: String,
-//   },
-//   { timestamps: true }
-// );
-
-// export default mongoose.model("Business", businessSchema);
 import mongoose from "mongoose";
 
 const businessSchema = new mongoose.Schema(
@@ -76,7 +59,34 @@ const businessSchema = new mongoose.Schema(
     qrCodeUrl: {
       type: String,
     },
+    //this are for stripe
+    plan: {
+      type: String,
+      enum: ["Free", "Starter", "Professional", "Enterprise"],
+      default: "Free", // Всички започват от Free или Trial
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: [
+        "trialing",
+        "active",
+        "past_due",
+        "canceled",
+        "unpaid",
+        "incomplete",
+      ],
+      default: "trialing", // Или "active" ако започват директно от платен
+    },
+    stripeCustomerId: {
+      type: String,
+      required: false, // ID на клиента в Stripe
+    },
+    stripeSubscriptionId: {
+      type: String,
+      required: false, // ID на активния абонамент в Stripe
+    },
   },
+
   { timestamps: true }
 );
 
