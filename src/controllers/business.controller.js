@@ -86,9 +86,9 @@ export const getBusinesses = async (req, res, next) => {
 
 export const getBusinessById = async (req, res, next) => {
   try {
-    const businessId = "68eec2193442d296c38f016b"; //req.params.id;
+    const businessId = req.params.id;
 
-    // 1. Намиране на Бизнеса
+    console.log("Fetching business with ID:", businessId);
     const business = await Business.findById(businessId).lean();
 
     if (!business) {

@@ -1,5 +1,3 @@
-// src/controllers/webhook.controller.js
-
 import stripe from "../config/stripe.js";
 import Business from "../models/Business.js";
 

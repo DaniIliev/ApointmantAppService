@@ -92,6 +92,7 @@ export const login = async (req, res, next) => {
         role: user.role,
         firstName: user.firstName,
         lastName: user.lastName,
+        businessId: user.businessId,
       },
     });
   } catch (e) {

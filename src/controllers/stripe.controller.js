@@ -80,7 +80,6 @@ export const createCheckoutSession = async (req, res) => {
       ],
       customer: customerId,
 
-      // 6. Прилагане на отстъпката за първа покупка
       ...(isFirstTimeSubscriber && {
         discounts: [{ promotion_code: promotionCode }],
       }),
