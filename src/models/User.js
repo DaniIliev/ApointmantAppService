@@ -27,6 +27,34 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
     businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
+    // Denormalized subscription info (mirrors active Business subscription)
+    subscriptionPlan: {
+      type: String,
+      enum: [
+        "none",
+        "Starter_Monthly",
+        "Professional_Monthly",
+        "Enterprise_Monthly",
+        "Starter_Annual",
+        "Professional_Annual",
+        "Enterprise_Annual",
+      ],
+      default: "none",
+      required: false,
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: ["active", "past_due", "canceled", "unpaid", "incomplete", "none"],
+      default: "none",
+      required: false,
+    },
+    subscriptionBusinessId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Business",
+      required: false,
+    },
+    subscriptionActivatedAt: { type: Date, required: false },
+    subscriptionCurrentPeriodEnd: { type: Date, required: false },
   },
   { timestamps: true }
 );

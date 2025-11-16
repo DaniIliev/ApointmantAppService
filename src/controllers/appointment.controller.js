@@ -6,13 +6,12 @@ import { sendConfirmationEmail } from "../utils/EmailService.js";
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
 import moment from "moment";
 import { io } from "../index.js";
+
 export const getDashboardData = async (req, res) => {
   try {
     let appointments;
     const userId = req.user.id;
     const userRole = req.user.role;
-
-    // ... (съществуващият код за намиране на срещи)
     if (userRole === "personal") {
       appointments = await Appointment.find({ client: userId }).populate(
         "business service"
@@ -46,6 +45,9 @@ export const getDashboardData = async (req, res) => {
         status: appointment.status,
         service_id: appointment.service._id,
         staff_id: appointment.staff,
+        staff: {
+          _id: appointment.staff,
+        },
       };
     });
     transformedAppointments.sort((a, b) => {
@@ -65,13 +67,13 @@ export const createAppointment = async (req, res, next) => {
     const {
       business,
       service,
-      dateTime, // Това е началният час като низ
+      dateTime,
       clientName,
       clientPhone,
       email,
       staff,
     } = req.body;
-
+    console.log("Creating appointment with data:", req.body);
     const biz = await Business.findById(business);
     if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
 
@@ -88,7 +90,6 @@ export const createAppointment = async (req, res, next) => {
       });
     }
 
-    // ВАЛИДАЦИЯ: Проверка за заетост на избрания час
     const availability = await getAvailableSlots(staff, dateTime, srv.duration);
     const requestedSlot = moment(dateTime).format("HH:mm");
     const isSlotAvailable = availability.slots.some(
@@ -121,11 +122,12 @@ export const createAppointment = async (req, res, next) => {
 
     const newAlert = await Alert.create({
       staff: staff,
+      businessId: business,
       appointment: appointment._id,
       message: `Нова заявка от ${clientName} за услуга "${srv.name}"`,
+      type: "appointment",
     });
 
-    // **NEW LOGIC:** Send the alert ID with the Socket.IO notification
     io.to(staff).emit("newAppointment", {
       appointment: {
         _id: appointment._id,
@@ -137,7 +139,7 @@ export const createAppointment = async (req, res, next) => {
         },
       },
       message: "Имате нова заявка за записване на час.",
-      _id: newAlert._id, // Send the new alert's ID
+      _id: newAlert._id,
     });
 
     res.status(201).json(appointment);
@@ -191,6 +193,120 @@ export const updateAppointmentStatus = async (req, res, next) => {
         appt.business.name
       );
     }
+    res.json(appt);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateAppointment = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const {
+      dateTime,
+      clientName,
+      clientPhone,
+      email,
+      staff,
+      service: serviceId,
+    } = req.body;
+
+    // Find the existing appointment
+    const appt = await Appointment.findById(id).populate("business service");
+    if (!appt) {
+      return res.status(404).json({ message: "Appointment не е намерен" });
+    }
+
+    // Check ownership
+    if (String(appt.business.owner) !== req.user.id) {
+      return res.status(403).json({ message: "Не сте собственик" });
+    }
+
+    // Get service info (use new service if provided, otherwise use existing)
+    const srv = serviceId
+      ? await Service.findById(serviceId)
+      : await Service.findById(appt.service._id);
+    if (!srv) {
+      return res.status(404).json({ message: "Услугата не е намерена" });
+    }
+
+    // If staff is being changed or dateTime is being changed, validate availability
+    const newStaff = staff || appt.staff;
+    const newDateTime = dateTime || appt.appointmentTime.start;
+
+    // Check if the slot has changed
+    const isTimeChanged =
+      moment(newDateTime).format("YYYY-MM-DD HH:mm") !==
+      moment(appt.appointmentTime.start).format("YYYY-MM-DD HH:mm");
+    const isStaffChanged = String(newStaff) !== String(appt.staff);
+
+    if (isTimeChanged || isStaffChanged) {
+      // Validate new slot availability
+      const availability = await getAvailableSlots(
+        newStaff,
+        newDateTime,
+        srv.duration
+      );
+      const requestedSlot = moment(newDateTime).format("HH:mm");
+      const isSlotAvailable = availability.slots.some(
+        (slot) => slot.startTime === requestedSlot
+      );
+
+      if (!isSlotAvailable) {
+        return res
+          .status(400)
+          .json({ message: "Избраният час е зает или невалиден." });
+      }
+
+      // Update appointment time
+      const startDateTime = moment(newDateTime).toDate();
+      const endDateTime = moment(newDateTime)
+        .add(srv.duration, "minutes")
+        .toDate();
+      appt.appointmentTime = {
+        start: startDateTime,
+        end: endDateTime,
+      };
+
+      // Set status to pending when time/staff changes
+      appt.status = "pending";
+    }
+
+    // Update other fields if provided
+    if (clientName) appt.clientName = clientName;
+    if (clientPhone) appt.clientPhone = clientPhone;
+    if (email) appt.email = email;
+    if (staff) appt.staff = staff;
+    if (serviceId) appt.service = serviceId;
+
+    await appt.save();
+
+    // Notify staff if changed
+    if (isStaffChanged || isTimeChanged) {
+      const newAlert = await Alert.create({
+        staff: newStaff,
+        businessId: appt.business._id,
+        appointment: appt._id,
+        message: `Променена заявка от ${appt.clientName} за услуга "${srv.name}"`,
+        type: "appointment",
+      });
+
+      io.to(String(newStaff)).emit("appointmentUpdated", {
+        appointment: {
+          _id: appt._id,
+          clientName: appt.clientName,
+          serviceName: srv.name,
+          appointmentTime: {
+            start: appt.appointmentTime.start,
+            end: appt.appointmentTime.end,
+          },
+          status: appt.status,
+        },
+        message: "Заявката е променена.",
+        _id: newAlert._id,
+      });
+    }
+
     res.json(appt);
   } catch (e) {
     next(e);

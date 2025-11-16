@@ -62,20 +62,21 @@ const businessSchema = new mongoose.Schema(
     //this are for stripe
     plan: {
       type: String,
-      enum: ["Free", "Starter", "Professional", "Enterprise"],
-      default: "Free", // Всички започват от Free или Trial
+      enum: [
+        "none",
+        "Starter_Monthly",
+        "Professional_Monthly",
+        "Enterprise_Monthly",
+        "Starter_Annual",
+        "Professional_Annual",
+        "Enterprise_Annual",
+      ],
+      default: "none",
     },
     subscriptionStatus: {
       type: String,
-      enum: [
-        "trialing",
-        "active",
-        "past_due",
-        "canceled",
-        "unpaid",
-        "incomplete",
-      ],
-      default: "trialing", // Или "active" ако започват директно от платен
+      enum: ["active", "past_due", "canceled", "unpaid", "incomplete", "none"],
+      default: "none",
     },
     stripeCustomerId: {
       type: String,

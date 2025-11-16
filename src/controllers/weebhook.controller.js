@@ -1,44 +1,70 @@
 import stripe from "../config/stripe.js";
 import Business from "../models/Business.js";
+import User from "../models/User.js";
+import {
+  getSubscriptionPeriodEnd,
+  syncBusinessSubscriptionToAllUsers,
+} from "../utils/subscriptionSync.js";
+import { createSubscriptionPurchasedAlert } from "../utils/alertService.js";
 
 export const handleStripeWebhook = async (req, res) => {
   const sig = req.headers["stripe-signature"];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
   let event;
 
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-    console.log("Event ", event);
   } catch (err) {
-    console.log(`❌ Webhook Signature Verification Failed: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
   const data = event.data.object;
-  console.log("data", data);
   const eventType = event.type;
-  console.log(`Received Stripe Event: ${eventType}`);
 
   try {
     switch (eventType) {
       case "checkout.session.completed":
         const session = data;
-        const businessId = session.metadata.businessId;
+        const businessId = session.metadata?.businessId;
 
         if (
           session.payment_status === "paid" &&
           businessId &&
           session.subscription
         ) {
-          await Business.findByIdAndUpdate(businessId, {
-            plan: session.metadata.planName,
-            subscriptionStatus: "active",
-            stripeSubscriptionId: session.subscription,
-            stripeCustomerId: session.customer,
+          const updatedBusiness = await Business.findByIdAndUpdate(
+            businessId,
+            {
+              plan: session.metadata.planName,
+              subscriptionStatus: "active",
+              stripeSubscriptionId: session.subscription,
+              stripeCustomerId: session.customer,
+            },
+            { new: true }
+          );
+          // Determine current period end
+          const currentPeriodEnd = await getSubscriptionPeriodEnd(
+            session.subscription
+          );
+
+          // Mirror to all users in the business
+          await syncBusinessSubscriptionToAllUsers(updatedBusiness._id, {
+            setActivatedAt: true,
+            currentPeriodEnd: currentPeriodEnd || null,
           });
+
+          // Create alert for all users in the business
+          await createSubscriptionPurchasedAlert(
+            updatedBusiness._id,
+            session.metadata.planName
+          );
+
           console.log(
             `✅ New subscription for Business ${businessId}: ${session.metadata.planName}`
           );
+          console.log("Updated business:", updatedBusiness);
+        } else {
         }
         break;
 
@@ -46,27 +72,45 @@ export const handleStripeWebhook = async (req, res) => {
         const subscription = data;
         const status = subscription.status;
 
-        await Business.findOneAndUpdate(
+        const updatedBusiness2 = await Business.findOneAndUpdate(
           { stripeSubscriptionId: subscription.id },
-          { subscriptionStatus: status }
+          { subscriptionStatus: status },
+          { new: true }
         );
+        // Mirror status and period end to all users in the business
+        if (updatedBusiness2?._id) {
+          const currentPeriodEnd = subscription.current_period_end
+            ? new Date(subscription.current_period_end * 1000)
+            : null;
+          await syncBusinessSubscriptionToAllUsers(updatedBusiness2._id, {
+            setActivatedAt: false,
+            currentPeriodEnd,
+          });
+        }
 
         console.log(
-          `🔄 Subscription ${subscription.id} updated to status: ${status}`
+          `✅ Subscription ${subscription.id} updated to status: ${status}`
         );
+        console.log("Updated business:", updatedBusiness2);
         break;
 
       case "customer.subscription.deleted":
         // Абонаментът е окончателно прекратен
         const deletedSubscription = data;
-        await Business.findOneAndUpdate(
+        const downgraded = await Business.findOneAndUpdate(
           { stripeSubscriptionId: deletedSubscription.id },
           {
-            plan: "Free",
-            subscriptionStatus: "canceled",
+            plan: "none",
+            subscriptionStatus: "none",
             stripeSubscriptionId: null, // Премахване на ID-то
           }
         );
+        if (downgraded?._id) {
+          await syncBusinessSubscriptionToAllUsers(downgraded._id, {
+            setActivatedAt: false,
+            currentPeriodEnd: null,
+          });
+        }
         console.log(
           `🛑 Subscription deleted for Business: Downgraded to Free.`
         );

@@ -20,6 +20,7 @@ import webhookRoutes from "./routes/webhook.routes.js";
 import { swaggerDocs } from "./config/swagger.js";
 import { notFound, errorHandler } from "./middlewares/error.js";
 import chatbot from "./chatbot/chatbot.js";
+import { startSubscriptionExpirationJob } from "./jobs/subscriptionExpirationCheck.js";
 
 dotenv.config();
 
@@ -93,6 +94,10 @@ console.log("MONGO_URI:", MONGO_URI);
     await mongoose.connect(MONGO_URI);
     console.log("✅ MongoDB connected");
     await chatbot.initialize();
+
+    // Start subscription expiration check job
+    startSubscriptionExpirationJob();
+
     server.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
     });

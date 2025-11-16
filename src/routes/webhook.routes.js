@@ -13,4 +13,9 @@ const router = express.Router();
  */
 router.post("/", handleStripeWebhook);
 
+// Lightweight reachability check for debugging
+router.get("/ping", (req, res) => {
+  res.json({ ok: true, path: "/api/v1/webhook/ping" });
+});
+
 export default router;

@@ -1,7 +1,14 @@
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
 import Business from "../models/Business.js";
-import { inviteStaffEmail } from "../utils/EmailService.js";
+import {
+  inviteStaffEmail,
+  sendEmailChangeNotification,
+} from "../utils/EmailService.js";
+import {
+  syncBusinessSubscriptionToUser,
+  clearUserSubscription,
+} from "../utils/subscriptionSync.js";
 
 export const listBusinessStaff = async (req, res, next) => {
   try {
@@ -57,12 +64,18 @@ export const inviteStaff = async (req, res, next) => {
       businessId: business._id,
     });
 
+    if (business.plan && business.plan !== "none") {
+      await syncBusinessSubscriptionToUser(newStaff._id, business._id, {
+        setActivatedAt: false,
+      });
+    }
+
     await inviteStaffEmail(
       firstName,
       lastName,
       email,
       tempPassword,
-      business.name
+      business.businessName
     );
 
     res.status(201).json({
@@ -102,111 +115,118 @@ export const getStaffByIds = async (req, res, next) => {
   }
 };
 
-// // src/controllers/staff.controller.js
+export const removeStaff = async (req, res, next) => {
+  try {
+    const ownerId = req.user.id;
+    const { id: staffId } = req.params;
 
-// import bcrypt from "bcryptjs";
-// import User from "../models/User.js";
-// import Business from "../models/Business.js";
-// import nodemailer from "nodemailer";
+    const business = await Business.findOne({ owner: ownerId });
+    if (!business) {
+      return res
+        .status(403)
+        .json({ message: "Само собственици могат да премахват служители." });
+    }
 
-// export const listBusinessStaff = async (req, res, next) => {
-//   try {
-//     const ownerId = req.user.id;
-//     const business = await Business.findOne({ owner: ownerId });
+    const staff = await User.findById(staffId);
+    if (!staff || String(staff.businessId) !== String(business._id)) {
+      return res
+        .status(404)
+        .json({ message: "Служителят не е намерен за този бизнес." });
+    }
 
-//     if (!business) {
-//       return res.status(404).json({ message: "Бизнесът не е намерен." });
-//     }
+    // Delete the staff account completely
+    await User.findByIdAndDelete(staffId);
 
-//     // Променяме заявката, за да намерим всички потребители,
-//     // чиято роля е "business" ИЛИ "staff", свързани с този бизнес.
-//     const staffMembers = await User.find({
-//       businessId: business._id,
-//       role: { $in: ["business", "staff"] },
-//     })
-//       .select("firstName lastName _id")
-//       .lean();
+    res.json({
+      message: "Служителят е премахнат и акаунтът е изтрит успешно.",
+    });
+  } catch (e) {
+    next(e);
+  }
+};
 
-//     res.json(staffMembers);
-//   } catch (e) {
-//     next(e);
-//   }
-// };
+export const updateStaffEmail = async (req, res, next) => {
+  try {
+    const ownerId = req.user.id;
+    const { id: staffId } = req.params;
+    const { newEmail } = req.body;
 
-// export const inviteStaff = async (req, res, next) => {
-//   try {
-//     const { email, firstName, lastName, phone } = req.body;
-//     const ownerId = req.user.id; // Взимаме ID-то на собственика от `req.user` след middleware-а
+    if (!newEmail) {
+      return res.status(400).json({ message: "Новият имейл е задължителен." });
+    }
 
-//     // 1. Проверка дали потребителят е собственик на бизнес
-//     const business = await Business.findOne({ owner: ownerId });
-//     if (!business) {
-//       return res.status(403).json({
-//         message: "Само собственици на бизнес могат да канят служители.",
-//       });
-//     }
+    const business = await Business.findOne({ owner: ownerId });
+    if (!business) {
+      return res
+        .status(403)
+        .json({
+          message: "Само собственици могат да променят имейли на служители.",
+        });
+    }
 
-//     // 2. Проверка дали има съществуващ потребител с този имейл
-//     const existingUser = await User.findOne({ email });
-//     if (existingUser) {
-//       return res
-//         .status(409)
-//         .json({ message: "Потребител с този имейл вече съществува." });
-//     }
+    const staff = await User.findById(staffId);
+    if (!staff || String(staff.businessId) !== String(business._id)) {
+      return res
+        .status(404)
+        .json({ message: "Служителят не е намерен за този бизнес." });
+    }
 
-//     // 3. Генериране на временна парола
-//     const tempPassword = Math.random().toString(36).slice(-8);
-//     const passwordHash = await bcrypt.hash(tempPassword, 10);
+    // Check if new email already exists
+    const existingUser = await User.findOne({ email: newEmail });
+    if (existingUser) {
+      return res
+        .status(409)
+        .json({ message: "Потребител с този имейл вече съществува." });
+    }
 
-//     // 4. Създаване на нов потребител със роля 'staff'
-//     const newStaff = await User.create({
-//       email,
-//       passwordHash,
-//       firstName,
-//       lastName,
-//       phone,
-//       role: "staff",
-//       businessId: business._id,
-//     });
+    const oldEmail = staff.email;
+    const tempPassword = Math.random().toString(36).slice(-8);
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-//     // 5. Изпращане на имейл с временната парола
-//     const transporter = nodemailer.createTransport({
-//       service: "gmail",
-//       auth: {
-//         user: "appointmentappdi@gmail.com", // Твоят имейл адрес
-//         pass: "YOUR_GMAIL_APP_PASSWORD", // Парола на приложението, генерирана от Google
-//       },
-//     });
+    // Create new staff account with new email
+    const newStaff = await User.create({
+      email: newEmail,
+      passwordHash,
+      firstName: staff.firstName,
+      lastName: staff.lastName,
+      phone: staff.phone,
+      role: staff.role,
+      businessId: staff.businessId,
+    });
 
-//     const mailOptions = {
-//       from: "appointmentappdi@gmail.com",
-//       to: email,
-//       subject: "Покана за присъединяване към екипа!",
-//       html: `
-//         <p>Здравейте, ${firstName} ${lastName},</p>
-//         <p>Вие бяхте поканен да се присъедините към екипа на ${business.name}.</p>
-//         <p>Ето вашите данни за вход:</p>
-//         <ul>
-//           <li><strong>Имейл:</strong> ${email}</li>
-//           <li><strong>Временна парола:</strong> ${tempPassword}</li>
-//         </ul>
-//         <p>Моля, влезте в акаунта си и сменете паролата при първа възможност.</p>
-//         <p>Поздрави,<br>${business.name}</p>
-//       `,
-//     };
+    // Copy subscription data if exists
+    if (staff.subscriptionPlan && staff.subscriptionPlan !== "none") {
+      await syncBusinessSubscriptionToUser(newStaff._id, business._id, {
+        setActivatedAt: false,
+      });
+    }
 
-//     await transporter.sendMail(mailOptions);
+    // Delete old account
+    await User.findByIdAndDelete(staffId);
 
-//     res.status(201).json({
-//       message:
-//         "Служителят е поканен успешно. Изпратен е имейл с временна парола.",
-//       staff: {
-//         id: newStaff._id,
-//         email: newStaff.email,
-//         role: newStaff.role,
-//       },
-//     });
-//   } catch (error) {
-//     next(error);
-//   }
-// };
+    // Send notifications to both emails
+    await sendEmailChangeNotification(
+      oldEmail,
+      newEmail,
+      staff.firstName,
+      staff.lastName,
+      tempPassword,
+      business.businessName
+    );
+
+    res.status(200).json({
+      message:
+        "Имейлът е променен успешно. Изпратени са имейли на стария и новия адрес.",
+      staff: {
+        _id: newStaff._id,
+        email: newStaff.email,
+        firstName: newStaff.firstName,
+        lastName: newStaff.lastName,
+        phone: newStaff.phone,
+        role: newStaff.role,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+};
