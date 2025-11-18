@@ -5,13 +5,20 @@ import Service from "../models/Service.js";
 import User from "../models/User.js";
 import Appointment from "../models/Appointment.js";
 import moment from "moment";
+import mongoose from "mongoose";
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
 
 class Chatbot {
   constructor() {
     this.classifier = null;
     this.conversationState = {};
+    this.lastActivity = {};
+    this.rateCounters = {};
     this.initialized = false;
+    // Configurable runtime parameters
+    this.TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes inactivity timeout
+    this.RATE_LIMIT_MAX = 10; // Max messages per minute per user
+    this.RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
   }
 
   async initialize() {
@@ -37,174 +44,509 @@ class Chatbot {
   }
 
   async processMessage(message, userId, businessId) {
-    console.log(
-      "🔍 Initialized:",
-      this.initialized,
-      "Classifier:",
-      !!this.classifier
-    );
+    try {
+      console.log(
+        "🔍 Initialized:",
+        this.initialized,
+        "Classifier:",
+        !!this.classifier
+      );
 
-    if (!this.initialized) {
-      console.log("🤖 Initializing inside processMessage...");
-      await this.initialize();
-    }
-
-    if (!this.conversationState[userId]) {
-      this.conversationState[userId] = {
-        intent: null,
-        service: null,
-        staff: null,
-        date: null,
-        time: null,
-      };
-    }
-
-    const currentState = this.conversationState[userId];
-    const lowerCaseMessage = message.toLowerCase();
-    const intent = this.classifier.classify(lowerCaseMessage);
-
-    console.log("📩 Incoming message:", message);
-    console.log("🧠 Classified intent:", intent);
-    console.log("📌 Current state for user:", currentState);
-
-    if (
-      ["отказ", "отмени", "започни отначало", "спри"].includes(lowerCaseMessage)
-    ) {
-      this.conversationState[userId] = {};
-      console.log("❌ Conversation reset for user:", userId);
-      return "Разговорът е прекратен. Моля, заповядайте отново.";
-    }
-
-    if (intent === Intents.GREETING) {
-      this.conversationState[userId] = {
-        ...this.conversationState[userId],
-        intent: Intents.GREETING,
-      };
-      console.log("🙋 Greeting detected for user:", userId);
-      return "Здравейте! Аз съм вашият виртуален асистент. С какво мога да ви помогна? Мога да ви помогна със запазване на час.";
-    }
-
-    if (
-      intent === Intents.BOOK_APPOINTMENT ||
-      currentState.intent === Intents.BOOK_APPOINTMENT
-    ) {
-      currentState.intent = Intents.BOOK_APPOINTMENT;
-      console.log("📅 Booking flow started for user:", userId);
-
-      if (!currentState.service) {
-        const services = await Service.find({ business: businessId });
-        const foundService = services.find((s) =>
-          lowerCaseMessage.includes(s.name.toLowerCase())
-        );
-
-        if (foundService) {
-          currentState.service = foundService;
-          const staffForService = await User.find({
-            role: "staff",
-            _id: { $in: foundService.staffIds },
-          });
-          const staffNames = staffForService.map((s) => s.firstName).join(", ");
-
-          return `Добре, услуга "${foundService.name}". За нея можем да ви предложим: ${staffNames}. При кого бихте искали?`;
-        } else {
-          const services = await Service.find({ business: businessId });
-          const serviceNames = services.map((s) => s.name).join(", ");
-          return `Не можах да намеря такава услуга. Моля, изберете от: ${serviceNames}.`;
-        }
+      if (!this.initialized) {
+        console.log("🤖 Initializing inside processMessage...");
+        await this.initialize();
       }
 
-      if (currentState.service && !currentState.staff) {
-        const staffForService = await User.find({
-          role: "staff",
-          _id: { $in: currentState.service.staffIds },
-        });
-        const foundStaff = staffForService.find((s) =>
-          lowerCaseMessage.includes(s.firstName.toLowerCase())
-        );
-
-        if (foundStaff) {
-          currentState.staff = foundStaff;
-
-          const { slots } = await getAvailableSlots(
-            foundStaff._id,
-            moment().format("YYYY-MM-DD"),
-            currentState.service.duration
-          );
-          const now = moment();
-          const availableToday = slots.filter((slot) =>
-            moment(
-              `${moment().format("YYYY-MM-DD")}T${slot.startTime}`
-            ).isAfter(now)
-          );
-
-          if (availableToday.length > 0) {
-            const closestSlot = availableToday[0];
-            currentState.date = moment().format("YYYY-MM-DD");
-            currentState.time = closestSlot.startTime;
-            return `Най-близкият свободен час при ${foundStaff.firstName} е днес в ${closestSlot.startTime}. Искате ли да го запазите? (Отговорете с "да" или "не").`;
-          } else {
-            return `За съжаление, ${foundStaff.firstName} няма свободни часове днес. Опитайте с друг служител или друга услуга.`;
-          }
-        } else {
-          const staffNames = staffForService.map((s) => s.firstName).join(", ");
-          return `Не можах да намеря такъв служител. Моля, изберете от: ${staffNames}.`;
-        }
+      if (!this.conversationState[userId]) {
+        this.conversationState[userId] = {
+          intent: null,
+          service: null,
+          staff: null,
+          date: null,
+          time: null,
+        };
       }
 
+      const currentState = this.conversationState[userId];
+      const lowerCaseMessage = (message || "").toLowerCase();
+
+      // -------- Rate limiting --------
+      const nowTs = Date.now();
+      if (!this.rateCounters[userId]) {
+        this.rateCounters[userId] = { count: 0, windowStart: nowTs };
+      }
+      const rc = this.rateCounters[userId];
+      if (nowTs - rc.windowStart > this.RATE_LIMIT_WINDOW_MS) {
+        rc.windowStart = nowTs;
+        rc.count = 0;
+      }
+      rc.count++;
+      if (rc.count > this.RATE_LIMIT_MAX) {
+        console.warn("⏱️ Rate limit exceeded for user", userId);
+        return "Моля, изчакайте малко преди да изпратите още съобщения.";
+      }
+
+      // -------- Inactivity timeout --------
+      const last = this.lastActivity[userId];
+      if (last && nowTs - last > this.TIMEOUT_MS) {
+        console.log(
+          "🕒 Inactivity timeout; resetting conversation for",
+          userId
+        );
+        this.conversationState[userId] = {
+          intent: null,
+          service: null,
+          staff: null,
+          date: null,
+          time: null,
+        };
+      }
+      this.lastActivity[userId] = nowTs;
+
+      // -------- Date parsing helper --------
+      const parseRequestedDate = () => {
+        if (/(днес)/i.test(lowerCaseMessage)) {
+          return moment().format("YYYY-MM-DD");
+        }
+        if (/(утре)/i.test(lowerCaseMessage)) {
+          return moment().add(1, "day").format("YYYY-MM-DD");
+        }
+        const dateMatch = lowerCaseMessage.match(
+          /(\d{1,2}[\.\/]\d{1,2}(?:[\.\/]\d{2,4})?)/
+        );
+        if (dateMatch) {
+          const raw = dateMatch[1];
+          const parts = raw.split(/[\.\/]/).map((p) => p.trim());
+          let day = parts[0];
+          let month = parts[1];
+          let year = parts[2];
+          if (!year) year = moment().format("YYYY");
+          if (year.length === 2) year = "20" + year;
+          const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(
+            2,
+            "0"
+          )}`;
+          if (moment(iso, "YYYY-MM-DD", true).isValid()) return iso;
+        }
+        return null;
+      };
+      const requestedDate = parseRequestedDate();
+
+      // Early greeting regex (covers punctuation / trailing spaces)
+      const greetingRegex = /^(здравей|здравейте|здрасти|привет)[!.,\s]*$/i;
+      if (greetingRegex.test(message.trim())) {
+        this.conversationState[userId] = { intent: Intents.GREETING };
+        console.log("🙋 Early regex greeting matched for user:", userId);
+        return "Здравейте! Аз съм вашият виртуален асистент. С какво мога да ви помогна? Може да кажете 'Искам да запазя час' или 'Кои са свободните часове?'";
+      }
+      // Early availability regex
+      const availabilityRegex =
+        /(кои|какви|има ли|покажи).*(свободн|наличн).*(час|часове)|свободни часове|налични часове/i;
+      if (availabilityRegex.test(lowerCaseMessage)) {
+        currentState.intent = Intents.CHECK_AVAILABILITY;
+        console.log("🕒 Early regex availability matched for user:", userId);
+        // Fall through so classifier probabilities logged; override intent later
+      }
+      // Early booking regex to catch variants before classifier
+      const bookingRegex =
+        /(искам|може ли|мога ли).*(да)?\s*(запазя|запиша|резервирам)\s*час/i;
+      if (bookingRegex.test(lowerCaseMessage)) {
+        currentState.intent = Intents.BOOK_APPOINTMENT;
+        console.log("📌 Early regex booking intent matched for user:", userId);
+        // Downstream logic will pick this up via currentState.intent
+      }
+      let intent = Intents.UNKNOWN;
+      try {
+        intent = this.classifier.classify(lowerCaseMessage);
+      } catch (classErr) {
+        console.error("Classifier error, defaulting to UNKNOWN:", classErr);
+        intent = Intents.UNKNOWN;
+      }
+      // If regex set a desired intent, override classifier outcome
       if (
-        currentState.service &&
-        currentState.staff &&
-        currentState.date &&
-        currentState.time
+        currentState.intent === Intents.CHECK_AVAILABILITY &&
+        intent !== Intents.CHECK_AVAILABILITY
       ) {
-        if (
-          lowerCaseMessage.includes("да") ||
-          lowerCaseMessage.includes("потвърди")
-        ) {
-          const businessId = currentState.service.business;
-          const serviceId = currentState.service._id;
-          const staffId = currentState.staff._id;
-          const startDateTime = moment(
-            `${currentState.date}T${currentState.time}`
-          ).toISOString();
+        console.log(
+          "🔁 Overriding classifier intent to CHECK_AVAILABILITY due to regex match."
+        );
+        intent = Intents.CHECK_AVAILABILITY;
+      }
 
-          await Appointment.create({
-            business: businessId,
-            service: serviceId,
-            appointmentTime: {
-              start: moment(startDateTime).toDate(),
-              end: moment(startDateTime)
-                .add(currentState.service.duration, "minutes")
-                .toDate(),
-            },
-            client: userId,
-            clientName: "Чатбот Потребител",
-            clientPhone: "0888888888",
-            email: "chatbot@example.com",
-            staff: staffId,
+      // Log classification probabilities for debugging
+      if (this.classifier && this.classifier.getClassifications) {
+        try {
+          const probs = this.classifier.getClassifications(lowerCaseMessage);
+          console.log("📊 Intent probabilities:", probs);
+        } catch (probErr) {
+          console.warn("Could not get intent probabilities:", probErr);
+        }
+      }
+
+      console.log("📩 Incoming message:", message);
+      console.log("🧠 Classified intent:", intent);
+      console.log("📌 Current state for user:", currentState);
+
+      // Reset conversation
+      if (
+        ["отказ", "отмени", "започни отначало", "спри", "не"].includes(
+          lowerCaseMessage.trim()
+        )
+      ) {
+        this.conversationState[userId] = {};
+        console.log("❌ Conversation reset for user:", userId);
+        return "Разговорът е прекратен. Ако искате да запазите час, просто кажете 'искам да запазя час'.";
+      }
+
+      // Greeting
+      if (intent === Intents.GREETING) {
+        this.conversationState[userId] = {
+          ...this.conversationState[userId],
+          intent: Intents.GREETING,
+        };
+        console.log("🙋 Greeting detected for user:", userId);
+        return "Здравейте! Аз съм вашият виртуален асистент. С какво мога да ви помогна? Мога да ви помогна със запазване на час.";
+      }
+
+      // Booking flow
+      if (
+        intent === Intents.BOOK_APPOINTMENT ||
+        currentState.intent === Intents.BOOK_APPOINTMENT
+      ) {
+        currentState.intent = Intents.BOOK_APPOINTMENT;
+        console.log("📅 Booking flow started for user:", userId);
+
+        // Step 1: Ask for service
+        if (!currentState.service) {
+          let services = [];
+          try {
+            services = await Service.find({ business: businessId }).lean();
+            console.log("Services fetched count:", services.length);
+          } catch (svcErr) {
+            console.error("Service fetch error:", svcErr);
+            return "Възникна грешка при зареждане на услугите. Опитайте отново.";
+          }
+
+          if (!services || services.length === 0) {
+            this.conversationState[userId] = {};
+            return "За съжаление, няма налични услуги в момента.";
+          }
+
+          const foundService = services.find((s) => {
+            try {
+              return lowerCaseMessage.includes(String(s.name).toLowerCase());
+            } catch (e) {
+              return false;
+            }
           });
 
-          this.conversationState[userId] = {};
-          return `Благодаря! Вашият час за услуга "${
-            currentState.service.name
-          }" при ${
-            currentState.staff.firstName
-          } е запазен. Очакваме ви на ${moment(startDateTime).format(
-            "DD.MM.YYYY"
-          )} в ${moment(startDateTime).format("HH:mm")}.`;
+          if (foundService) {
+            currentState.service = foundService;
+
+            const serviceStaffs = Array.isArray(foundService.staffs)
+              ? foundService.staffs
+              : [];
+            if (serviceStaffs.length === 0) {
+              this.conversationState[userId] = {};
+              return `За услугата "${foundService.name}" няма налични служители в момента. Моля, изберете друга услуга.`;
+            }
+            const staffIds = serviceStaffs
+              .map((s) => s?._id)
+              .filter((id) => mongoose.Types.ObjectId.isValid(id));
+            if (staffIds.length === 0) {
+              this.conversationState[userId] = {};
+              return `За услугата "${foundService.name}" няма валидни служители.`;
+            }
+            const staffForService = await User.find({
+              _id: { $in: staffIds },
+            }).lean();
+
+            if (!staffForService || staffForService.length === 0) {
+              this.conversationState[userId] = {};
+              return `За услугата "${foundService.name}" няма налични служители в момента.`;
+            }
+
+            const staffNames = staffForService
+              .map((s) => `${s.firstName} ${s.lastName}`)
+              .join(", ");
+            return `Отлично! Избрахте услуга "${foundService.name}" (${foundService.duration} мин, ${foundService.price} лв). Налични служители: ${staffNames}. При кого бихте искали да запазите час?`;
+          } else {
+            const serviceList = services
+              .map((s) => `• ${s.name} (${s.duration} мин, ${s.price} лв)`)
+              .join("\n");
+            return `Моля, изберете услуга от следните:\n${serviceList}`;
+          }
         }
 
-        this.conversationState[userId] = {};
-        return "Добре, тогава запазването на този час се отменя. Ако искате да запазите друг, просто кажете 'запази час'.";
+        // Step 2: Ask for staff
+        if (currentState.service && !currentState.staff) {
+          const serviceStaffs2 = Array.isArray(currentState.service.staffs)
+            ? currentState.service.staffs
+            : [];
+          const staffIds = serviceStaffs2
+            .map((s) => s?._id)
+            .filter((id) => mongoose.Types.ObjectId.isValid(id));
+          if (staffIds.length === 0) {
+            this.conversationState[userId] = {};
+            return "За избраната услуга няма валидни служители. Опитайте друга услуга.";
+          }
+          const staffForService = await User.find({
+            _id: { $in: staffIds },
+          }).lean();
+
+          const foundStaff = staffForService.find(
+            (s) =>
+              lowerCaseMessage.includes(s.firstName.toLowerCase()) ||
+              lowerCaseMessage.includes(s.lastName.toLowerCase())
+          );
+
+          if (foundStaff) {
+            currentState.staff = foundStaff;
+
+            let slots = [];
+            try {
+              const dateForSearch =
+                requestedDate || moment().format("YYYY-MM-DD");
+              const avail = await getAvailableSlots(
+                foundStaff._id,
+                dateForSearch,
+                currentState.service.duration
+              );
+              slots = avail.slots || [];
+            } catch (slotErr) {
+              console.error("Slot calc error:", slotErr);
+              return "Възникна грешка при проверка на свободните часове. Опитайте отново.";
+            }
+            const now = moment();
+            const searchDate = requestedDate || moment().format("YYYY-MM-DD");
+            const availableToday = slots.filter((slot) =>
+              moment(`${searchDate}T${slot.startTime}`).isAfter(now)
+            );
+
+            if (availableToday.length > 0) {
+              const closestSlot = availableToday[0];
+              currentState.date = searchDate;
+              currentState.time = closestSlot.startTime;
+
+              return `Най-близкият свободен час при ${foundStaff.firstName} ${
+                foundStaff.lastName
+              } е ${
+                searchDate === moment().format("YYYY-MM-DD")
+                  ? "днес"
+                  : moment(searchDate).format("DD.MM.YYYY")
+              } в ${
+                closestSlot.startTime
+              }. Искате ли да го запазите? (Отговорете с "да" за потвърждение или "не" за отказ)`;
+            } else {
+              let foundSlot = null;
+              let foundDate = null;
+
+              for (let i = 1; i <= 7; i++) {
+                const searchDate = moment().add(i, "days").format("YYYY-MM-DD");
+                try {
+                  const { slots: futureSlots } = await getAvailableSlots(
+                    foundStaff._id,
+                    searchDate,
+                    currentState.service.duration
+                  );
+                  if (futureSlots.length > 0) {
+                    foundSlot = futureSlots[0];
+                    foundDate = searchDate;
+                    break;
+                  }
+                } catch (futureErr) {
+                  console.warn(
+                    "Future slot check failed for date",
+                    searchDate,
+                    futureErr
+                  );
+                }
+              }
+
+              if (foundSlot && foundDate) {
+                currentState.date = foundDate;
+                currentState.time = foundSlot.startTime;
+                return `${foundStaff.firstName} ${
+                  foundStaff.lastName
+                } няма свободни часове днес. Най-близкият свободен час е на ${moment(
+                  foundDate
+                ).format("DD.MM.YYYY")} в ${
+                  foundSlot.startTime
+                }. Искате ли да го запазите? (Отговорете с "да" или "не")`;
+              } else {
+                this.conversationState[userId] = {};
+                return `За съжаление, ${foundStaff.firstName} ${foundStaff.lastName} няма свободни часове в следващите 7 дни. Моля, изберете друг служител или опитайте по-късно.`;
+              }
+            }
+          } else {
+            const staffNames = staffForService
+              .map((s) => `${s.firstName} ${s.lastName}`)
+              .join(", ");
+            return `Моля, изберете служител от: ${staffNames}.`;
+          }
+        }
+
+        // Step 3: Confirm booking
+        if (
+          currentState.service &&
+          currentState.staff &&
+          currentState.date &&
+          currentState.time
+        ) {
+          if (
+            lowerCaseMessage.includes("да") ||
+            lowerCaseMessage.includes("потвърди") ||
+            lowerCaseMessage.includes("запази")
+          ) {
+            try {
+              const startDateTime = moment(
+                `${currentState.date}T${currentState.time}`
+              );
+
+              await Appointment.create({
+                business: businessId,
+                service: currentState.service._id,
+                appointmentTime: {
+                  start: startDateTime.toDate(),
+                  end: startDateTime
+                    .clone()
+                    .add(currentState.service.duration, "minutes")
+                    .toDate(),
+                },
+                client: userId,
+                clientName: "Чатбот Клиент",
+                clientPhone: "Няма",
+                email: "chatbot@example.com",
+                staff: currentState.staff._id,
+                status: "pending",
+              });
+              console.log(
+                "✅ Appointment created via chatbot for user",
+                userId
+              );
+
+              const successMessage =
+                `✅ Благодаря! Вашият час е успешно запазен!\n\n` +
+                `📋 Детайли:\n` +
+                `• Услуга: ${currentState.service.name}\n` +
+                `• Служител: ${currentState.staff.firstName} ${currentState.staff.lastName}\n` +
+                `• Дата: ${startDateTime.format("DD.MM.YYYY")}\n` +
+                `• Час: ${startDateTime.format("HH:mm")}\n` +
+                `• Продължителност: ${currentState.service.duration} минути\n` +
+                `• Цена: ${currentState.service.price} лв\n\n` +
+                `Очакваме ви!`;
+
+              this.conversationState[userId] = {};
+              return successMessage;
+            } catch (error) {
+              console.error("Error creating appointment:", error);
+              this.conversationState[userId] = {};
+              return "Съжалявам, възникна грешка при запазването на часа. Моля, опитайте отново.";
+            }
+          } else {
+            this.conversationState[userId] = {};
+            return "Добре, запазването е отменено. Ако искате да запазите час отново, просто кажете 'искам да запазя час'.";
+          }
+        }
       }
-    }
 
-    if (intent === Intents.UNKNOWN) {
+      // Check availability
+      if (intent === Intents.CHECK_AVAILABILITY) {
+        try {
+          const services = await Service.find({ business: businessId }).lean();
+          const allStaffIds = new Set();
+
+          services.forEach((service) => {
+            if (Array.isArray(service.staffs)) {
+              service.staffs.forEach((staff) => {
+                if (staff && staff._id) {
+                  allStaffIds.add(String(staff._id));
+                }
+              });
+            }
+          });
+
+          const validStaffIds = Array.from(allStaffIds).filter((id) =>
+            mongoose.Types.ObjectId.isValid(id)
+          );
+          const staff = await User.find({
+            _id: { $in: validStaffIds },
+          }).lean();
+
+          if (!staff || staff.length === 0) {
+            return "Няма налични служители в момента.";
+          }
+
+          // Staff-specific availability: "свободни часове при <име>"
+          const staffNameMatch = lowerCaseMessage.match(
+            /(?:при|за)\s+([А-ЯA-Zа-яa-z]+)/i
+          );
+          if (staffNameMatch) {
+            const fragment = staffNameMatch[1].toLowerCase();
+            const chosen = staff.find(
+              (s) =>
+                s.firstName.toLowerCase().startsWith(fragment) ||
+                s.lastName.toLowerCase().startsWith(fragment)
+            );
+            if (chosen) {
+              let duration = 30;
+              const durations = [];
+              services.forEach((svc) => {
+                if (
+                  Array.isArray(svc.staffs) &&
+                  svc.staffs.some(
+                    (st) =>
+                      st && st._id && String(st._id) === String(chosen._id)
+                  )
+                ) {
+                  durations.push(svc.duration);
+                }
+              });
+              if (durations.length > 0) duration = Math.min(...durations);
+              const dateSearch = requestedDate || moment().format("YYYY-MM-DD");
+              let availSlots = [];
+              try {
+                const { slots: staffSlots } = await getAvailableSlots(
+                  chosen._id,
+                  dateSearch,
+                  duration
+                );
+                availSlots = staffSlots;
+              } catch (asErr) {
+                console.warn("Staff-specific availability slot error", asErr);
+              }
+              if (availSlots.length === 0) {
+                return `Няма свободни часове при ${chosen.firstName} ${chosen.lastName} за избраната дата.`;
+              }
+              const slotList = availSlots
+                .slice(0, 10)
+                .map((slt) => slt.startTime)
+                .join(", ");
+              return `Свободни часове при ${chosen.firstName} ${
+                chosen.lastName
+              } на ${moment(dateSearch).format(
+                "DD.MM.YYYY"
+              )} : ${slotList}. За да запазите час, кажете 'Искам да запазя час'.`;
+            }
+          }
+          const staffList = staff
+            .map((s) => `• ${s.firstName} ${s.lastName}`)
+            .join("\n");
+          return `Налични служители:\n${staffList}\n\nМоже да попитате: 'Свободни часове при <име>' или да кажете 'Искам да запазя час'.`;
+        } catch (error) {
+          console.error("Error checking availability:", error);
+          return "Съжалявам, възникна грешка при проверката на наличността.";
+        }
+      }
+
+      // Unknown intent
       console.log("🤷 Unknown intent for user:", userId);
-      return "Съжалявам, не мога да ви разбера. Моля, опитайте да преформулирате въпроса си.";
+      return "Съжалявам, не мога да ви разбера. Моля, опитайте:\n• 'Искам да запазя час'\n• 'Кои са свободните часове?'\n• 'Здравей' за начало";
+    } catch (err) {
+      console.error("💥 Chatbot processing error:", err);
+      // Keep state so user can retry or decide to restart
+      return "Възникна вътрешна грешка. Моля, опитайте отново или напишете 'отказ'.";
     }
-
-    return "Съжалявам, не мога да ви разбера.";
   }
 }
 

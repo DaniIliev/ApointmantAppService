@@ -8,21 +8,32 @@ router.post("/", async (req, res, next) => {
   try {
     const { message, userId, businessId } = req.body;
     if (!message || !userId || !businessId) {
-      return res
-        .status(400)
-        .json({ message: "Message, userId, and businessId are required." });
+      return res.status(400).json({
+        message:
+          "Message, userId, and businessId are required. Expected JSON: { message, userId, businessId }",
+      });
     }
 
-    // Единствена проверка
+    // Sanitize input
+    const trimmedMessage = String(message).trim();
+    if (!trimmedMessage) {
+      return res.status(400).json({ message: "Message cannot be empty." });
+    }
+
     if (!chatbot.initialized) {
       console.log("🤖 Chatbot not initialized, training now...");
       await chatbot.initialize();
     }
 
-    const response = await chatbot.processMessage(message, userId, businessId);
+    const response = await chatbot.processMessage(
+      trimmedMessage,
+      userId,
+      businessId
+    );
     res.status(200).json({ response });
   } catch (error) {
-    next(error);
+    console.error("Chatbot route error:", error);
+    res.status(500).json({ message: "Chatbot internal error" });
   }
 });
 router.get("/status", (req, res) => {
