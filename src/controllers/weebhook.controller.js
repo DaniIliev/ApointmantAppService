@@ -1,4 +1,4 @@
-import stripe from "../config/stripe.js";
+import stripe, { getStripe } from "../config/stripe.js";
 import Business from "../models/Business.js";
 import User from "../models/User.js";
 import {

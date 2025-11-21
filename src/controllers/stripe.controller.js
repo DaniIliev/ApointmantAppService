@@ -1,4 +1,4 @@
-import stripe from "../config/stripe.js";
+import stripe, { getStripe } from "../config/stripe.js";
 import Business from "../models/Business.js";
 
 const FIRST_TIME_PROMO_CODE = process.env.STRIPE_FIRST_TIME_PROMO_CODE;

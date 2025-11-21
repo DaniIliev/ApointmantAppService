@@ -1,11 +1,12 @@
+import dotenv from "dotenv";
+dotenv.config(); // Ensure env vars available before any other imports use them
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import mongoose from "mongoose";
-import dotenv from "dotenv";
 
-// Импортиране на рутерите
+// Импортиране на рутерите (after env load)
 import authRoutes from "./routes/auth.routes.js";
 import businessRoutes from "./routes/business.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
@@ -22,8 +23,6 @@ import { swaggerDocs } from "./config/swagger.js";
 import { notFound, errorHandler } from "./middlewares/error.js";
 import chatbot from "./chatbot/chatbot.js";
 import { startSubscriptionExpirationJob } from "./jobs/subscriptionExpirationCheck.js";
-
-dotenv.config();
 
 const app = express();
 const server = createServer(app);
