@@ -55,7 +55,7 @@ app.use(
     origin: [
       process.env.CLIENT_URL,
       "https://appointdi.netlify.app",
-      "http://localhost:3000"
+      "http://localhost:3000",
     ].filter(Boolean),
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"],
