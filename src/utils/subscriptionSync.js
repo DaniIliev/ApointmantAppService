@@ -1,9 +1,11 @@
-import stripe, { getStripe } from "../config/stripe.js";
+import { getStripe } from "../config/stripe.js";
 import Business from "../models/Business.js";
 import User from "../models/User.js";
 
 export async function getSubscriptionPeriodEnd(stripeSubscriptionId) {
   if (!stripeSubscriptionId) return null;
+  const stripe = getStripe();
+  if (!stripe) return null;
   try {
     const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
     if (sub?.current_period_end) {

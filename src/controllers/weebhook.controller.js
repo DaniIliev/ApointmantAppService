@@ -1,4 +1,4 @@
-import stripe, { getStripe } from "../config/stripe.js";
+import { getStripe, requireStripe } from "../config/stripe.js";
 import Business from "../models/Business.js";
 import User from "../models/User.js";
 import {
@@ -12,6 +12,13 @@ export const handleStripeWebhook = async (req, res) => {
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   let event;
+
+  const stripe = getStripe();
+  if (!stripe) {
+    return res
+      .status(500)
+      .send("Stripe not configured: missing STRIPE_SECRET_KEY");
+  }
 
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);

@@ -1,4 +1,4 @@
-import stripe, { getStripe } from "../config/stripe.js";
+import { getStripe, requireStripe } from "../config/stripe.js";
 import Business from "../models/Business.js";
 
 const FIRST_TIME_PROMO_CODE = process.env.STRIPE_FIRST_TIME_PROMO_CODE;
@@ -26,6 +26,14 @@ export const createCheckoutSession = async (req, res) => {
   console.log(
     `Attempting checkout for Plan: ${planName}, Business: ${businessId}`
   );
+
+  const stripe = getStripe();
+  if (!stripe) {
+    return res.status(500).json({
+      error:
+        "Stripe is not configured on the server. Missing STRIPE_SECRET_KEY.",
+    });
+  }
 
   if (!planName || !businessId) {
     return res.status(400).json({ error: "Липсва planName или businessId." });
