@@ -14,7 +14,12 @@ const alertSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["appointment", "subscription_purchased", "subscription_expiring"],
+      enum: [
+        "appointment",
+        "subscription_purchased",
+        "subscription_expiring",
+        "kanban_assignment",
+      ],
       required: true,
     },
     appointment: {
