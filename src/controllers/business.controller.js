@@ -36,7 +36,7 @@ export const createBusiness = async (req, res, next) => {
     }); // Generate QR Code
 
     // const link = `${process.env.CLIENT_URL}/book/${business._id}`;
-    const link = `https://appointdi.netlify.app/book/${business._id}`;
+    const link = `https://appointdi.netlify.app/business/${business._id}`;
 
     // https://appointdi.netlify.app
     const qrCodeUrl = await generateQrDataUrl(link);
