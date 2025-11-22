@@ -51,11 +51,7 @@ const MONGO_URI = process.env.MONGO_URI;
 console.log("CLIENT_URL:", process.env.CLIENT_URL);
 app.use(
   cors({
-    origin: [
-      process.env.CLIENT_URL,
-      "http://localhost:3000",
-      "https://appointdi.netlify.app",
-    ].filter(Boolean),
+    origin: [process.env.CLIENT_URL, "http://localhost:3000"].filter(Boolean),
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"],
     credentials: true,
