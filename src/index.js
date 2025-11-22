@@ -51,24 +51,12 @@ const MONGO_URI = process.env.MONGO_URI;
 
 app.use(
   cors({
-    origin: [
-      process.env.CLIENT_URL,
-      "https://appointdi.netlify.app",
-      "http://localhost:3000",
-    ].filter(Boolean),
+    origin: [process.env.CLIENT_URL, "http://localhost:3000"].filter(Boolean),
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"],
     credentials: true,
   })
 );
-// app.use(
-//   cors({
-//     origin: ["https://appointdi.netlify.app/", "http://localhost:3000"], // Замести това с URL-то на React приложението
-//     methods: ["GET", "POST", "DELETE", "PATCH"],
-//     allowedHeaders: ["Content-Type"],
-//     credentials: true,
-//   })
-// );
 app.use(
   "/api/v1/webhook",
   express.raw({ type: "application/json" }),
