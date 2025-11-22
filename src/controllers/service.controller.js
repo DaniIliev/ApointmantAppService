@@ -29,7 +29,7 @@ export const createService = async (req, res, next) => {
     }
     const service = await Service.create({
       business: business._id,
-      name,
+      name: name?.trim(),
       description,
       duration,
       category,
@@ -76,7 +76,7 @@ export const updateService = async (req, res, next) => {
         .json({ message: "Нямате права да редактирате тази услуга." });
     }
 
-    serviceToUpdate.name = name || serviceToUpdate.name;
+    serviceToUpdate.name = name ? name.trim() : serviceToUpdate.name;
     serviceToUpdate.description = description || serviceToUpdate.description;
     serviceToUpdate.duration = duration || serviceToUpdate.duration;
     serviceToUpdate.price = price || serviceToUpdate.price;

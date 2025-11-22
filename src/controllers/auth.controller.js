@@ -124,6 +124,11 @@ export const getUserById = async (req, res, next) => {
       primaryColor: user.primaryColor,
       theme: user.theme,
       profilePictureUrl: user.profilePictureUrl,
+      subscriptionPlan: user.subscriptionPlan,
+      subscriptionStatus: user.subscriptionStatus,
+      subscriptionBusinessId: user.subscriptionBusinessId,
+      subscriptionActivatedAt: user.subscriptionActivatedAt,
+      subscriptionCurrentPeriodEnd: user.subscriptionCurrentPeriodEnd,
     });
   } catch (error) {
     next(e);

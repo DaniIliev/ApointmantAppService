@@ -64,6 +64,9 @@ class Chatbot {
           staff: null,
           date: null,
           time: null,
+          clientName: null,
+          clientEmail: null,
+          clientPhone: null,
         };
       }
 
@@ -182,7 +185,12 @@ class Chatbot {
           console.warn("Could not get intent probabilities:", probErr);
         }
       }
-
+      console.log(
+        "🤖 ProcessMessage inputs - UserID:",
+        userId,
+        "BusinessID:",
+        businessId
+      );
       console.log("📩 Incoming message:", message);
       console.log("🧠 Classified intent:", intent);
       console.log("📌 Current state for user:", currentState);
@@ -232,9 +240,25 @@ class Chatbot {
             return "За съжаление, няма налични услуги в момента.";
           }
 
+          const normalizedMsg = lowerCaseMessage.replace(/\s+/g, " ").trim();
           const foundService = services.find((s) => {
             try {
-              return lowerCaseMessage.includes(String(s.name).toLowerCase());
+              const rawName = String(s.name || "");
+              const name = rawName.toLowerCase().trim(); // remove trailing spaces
+              if (!name) return false;
+              // Exact word boundary match
+              const wordBoundaryMatch = new RegExp(
+                `(^|[^а-яa-z0-9])${name}($|[^а-яa-z0-9])`,
+                "i"
+              ).test(normalizedMsg);
+              // Explicit selection verbs before name (избирам <name>)
+              const selectionPattern = new RegExp(
+                `(?:избирам|вземам|избера|искам)\\s+${name}`,
+                "i"
+              ).test(normalizedMsg);
+              // Simple substring fallback
+              const substring = normalizedMsg.includes(name);
+              return wordBoundaryMatch || selectionPattern || substring;
             } catch (e) {
               return false;
             }
@@ -327,7 +351,6 @@ class Chatbot {
               const closestSlot = availableToday[0];
               currentState.date = searchDate;
               currentState.time = closestSlot.startTime;
-
               return `Най-близкият свободен час при ${foundStaff.firstName} ${
                 foundStaff.lastName
               } е ${
@@ -336,7 +359,7 @@ class Chatbot {
                   : moment(searchDate).format("DD.MM.YYYY")
               } в ${
                 closestSlot.startTime
-              }. Искате ли да го запазите? (Отговорете с "да" за потвърждение или "не" за отказ)`;
+              }. Моля, въведете вашето име, за да продължим (пример: Иван Петров).`;
             } else {
               let foundSlot = null;
               let foundDate = null;
@@ -372,7 +395,7 @@ class Chatbot {
                   foundDate
                 ).format("DD.MM.YYYY")} в ${
                   foundSlot.startTime
-                }. Искате ли да го запазите? (Отговорете с "да" или "не")`;
+                }. Моля, напишете вашето име, за да продължим.`;
               } else {
                 this.conversationState[userId] = {};
                 return `За съжаление, ${foundStaff.firstName} ${foundStaff.lastName} няма свободни часове в следващите 7 дни. Моля, изберете друг служител или опитайте по-късно.`;
@@ -393,6 +416,65 @@ class Chatbot {
           currentState.date &&
           currentState.time
         ) {
+          // Sequential data collection: name -> email -> phone -> confirmation
+          const collectName = !currentState.clientName;
+          const collectEmail =
+            currentState.clientName && !currentState.clientEmail;
+          const collectPhone =
+            currentState.clientName &&
+            currentState.clientEmail &&
+            !currentState.clientPhone;
+
+          if (collectName) {
+            // Simple heuristic: if message contains letters and not already recognized as confirmation, treat entire input as name
+            const nameCandidate = message.trim();
+            const nameOk = /^[A-Za-zА-Яа-яЁёІіЇїЬьЪъ\s'-]{2,50}$/.test(
+              nameCandidate
+            );
+            if (nameOk && !/(да|не|отказ)/i.test(nameCandidate.toLowerCase())) {
+              currentState.clientName = nameCandidate
+                .replace(/\s+/g, " ")
+                .trim();
+              return (
+                "Записах името: " +
+                currentState.clientName +
+                ". Моля, въведете вашия email."
+              );
+            }
+            return "Моля, въведете вашето име (пример: Иван Петров).";
+          }
+
+          if (collectEmail) {
+            const emailCandidate = message.trim();
+            const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(
+              emailCandidate
+            );
+            if (emailOk) {
+              currentState.clientEmail = emailCandidate;
+              return (
+                "Записах email: " +
+                currentState.clientEmail +
+                ". Моля, въведете телефон (пример: +359888123456)."
+              );
+            }
+            return "Моля, въведете валиден email адрес.";
+          }
+
+          if (collectPhone) {
+            const phoneCandidate = message.trim();
+            const phoneOk = /^(\+?\d[\d\s-]{6,18})$/.test(phoneCandidate);
+            if (phoneOk) {
+              currentState.clientPhone = phoneCandidate.replace(/\s+/g, " ");
+              return (
+                "Записах телефон: " +
+                currentState.clientPhone +
+                `. Потвърдете запазването с 'да' или отменете с 'не'.`
+              );
+            }
+            return "Моля, въведете валиден телефон (цифри, може +359).";
+          }
+
+          // Now we have all data; wait for confirmation
           if (
             lowerCaseMessage.includes("да") ||
             lowerCaseMessage.includes("потвърди") ||
@@ -402,7 +484,6 @@ class Chatbot {
               const startDateTime = moment(
                 `${currentState.date}T${currentState.time}`
               );
-
               await Appointment.create({
                 business: businessId,
                 service: currentState.service._id,
@@ -414,9 +495,9 @@ class Chatbot {
                     .toDate(),
                 },
                 client: userId,
-                clientName: "Чатбот Клиент",
-                clientPhone: "Няма",
-                email: "chatbot@example.com",
+                clientName: currentState.clientName || "Чатбот Клиент",
+                clientPhone: currentState.clientPhone || "Няма",
+                email: currentState.clientEmail || "chatbot@example.com",
                 staff: currentState.staff._id,
                 status: "pending",
               });
@@ -424,7 +505,6 @@ class Chatbot {
                 "✅ Appointment created via chatbot for user",
                 userId
               );
-
               const successMessage =
                 `✅ Благодаря! Вашият час е успешно запазен!\n\n` +
                 `📋 Детайли:\n` +
@@ -433,9 +513,17 @@ class Chatbot {
                 `• Дата: ${startDateTime.format("DD.MM.YYYY")}\n` +
                 `• Час: ${startDateTime.format("HH:mm")}\n` +
                 `• Продължителност: ${currentState.service.duration} минути\n` +
-                `• Цена: ${currentState.service.price} лв\n\n` +
-                `Очакваме ви!`;
-
+                `• Цена: ${currentState.service.price} лв\n` +
+                (currentState.clientName
+                  ? `• Клиент: ${currentState.clientName}\n`
+                  : "") +
+                (currentState.clientEmail
+                  ? `• Email: ${currentState.clientEmail}\n`
+                  : "") +
+                (currentState.clientPhone
+                  ? `• Телефон: ${currentState.clientPhone}\n`
+                  : "") +
+                `\nОчакваме ви!`;
               this.conversationState[userId] = {};
               return successMessage;
             } catch (error) {
@@ -443,10 +531,15 @@ class Chatbot {
               this.conversationState[userId] = {};
               return "Съжалявам, възникна грешка при запазването на часа. Моля, опитайте отново.";
             }
-          } else {
-            this.conversationState[userId] = {};
-            return "Добре, запазването е отменено. Ако искате да запазите час отново, просто кажете 'искам да запазя час'.";
           }
+          if (
+            lowerCaseMessage.includes("не") ||
+            lowerCaseMessage.includes("отказ")
+          ) {
+            this.conversationState[userId] = {};
+            return 'Запазването е отменено. Ако искате нов час, кажете "искам да запазя час".';
+          }
+          return 'Моля, потвърдете със "да" или отменете с "не".';
         }
       }
 
