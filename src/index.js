@@ -5,8 +5,6 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import mongoose from "mongoose";
-
-// Импортиране на рутерите (after env load)
 import authRoutes from "./routes/auth.routes.js";
 import businessRoutes from "./routes/business.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
