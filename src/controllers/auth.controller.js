@@ -40,7 +40,7 @@ export const register = async (req, res, next) => {
         phone: businessPhone,
       });
 
-      const link = `${process.env.CLIENT_URL}/book/${business.id}`;
+      const link = `${process.env.CLIENT_URL}/business/${business.id}`;
       const qrCodeUrl = await generateQrDataUrl(link);
       business.qrCodeUrl = qrCodeUrl;
       await business.save();
