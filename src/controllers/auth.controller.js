@@ -30,13 +30,11 @@ export const register = async (req, res, next) => {
 
     if (role === "business") {
       const { businessName, phone: businessPhone } = req.body;
-      if (!businessName)
-        return res.status(400).json({ message: "businessName е задължително" });
+      const effectiveName = (businessName && businessName.trim()) || undefined; // undefined lets schema default apply
 
       business = await Business.create({
         owner: user.id,
-        businessName,
-        // address,
+        businessName: effectiveName, // may be undefined -> default "Pending Setup"
         phone: businessPhone,
       });
 
@@ -62,6 +60,7 @@ export const register = async (req, res, next) => {
       return res.status(201).json({
         user: userResponse,
         business: business.toJSON(),
+        requiresBusinessSetup: business.businessName === "Pending Setup",
       });
     }
 

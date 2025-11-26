@@ -9,8 +9,9 @@ const businessSchema = new mongoose.Schema(
     },
     businessName: {
       type: String,
-      required: true,
+      required: false, // Allow deferred configuration after initial account creation
       trim: true,
+      default: "Pending Setup",
     },
     category: {
       type: String,
