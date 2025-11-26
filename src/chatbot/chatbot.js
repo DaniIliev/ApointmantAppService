@@ -142,9 +142,9 @@ class Chatbot {
         console.log("🙋 Early regex greeting matched for user:", userId);
         return "Здравейте! Аз съм вашият виртуален асистент. С какво мога да ви помогна? Може да кажете 'Искам да запазя час' или 'Кои са свободните часове?'";
       }
-      // Early availability regex
+      // Early availability regex (improved to catch 'какви свободни часове има на <date>')
       const availabilityRegex =
-        /(кои|какви|има ли|покажи).*(свободн|наличн).*(час|часове)|свободни часове|налични часове/i;
+        /(кои|какви|има ли|покажи).*(свободн|наличн).*(час|часове)|свободни часове|налични часове|какви\s+свободни\s+часове\s+има\s+на\s+\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4}/i;
       if (availabilityRegex.test(lowerCaseMessage)) {
         currentState.intent = Intents.CHECK_AVAILABILITY;
         console.log("🕒 Early regex availability matched for user:", userId);
@@ -266,7 +266,6 @@ class Chatbot {
 
           if (foundService) {
             currentState.service = foundService;
-
             const serviceStaffs = Array.isArray(foundService.staffs)
               ? foundService.staffs
               : [];
@@ -284,10 +283,40 @@ class Chatbot {
             const staffForService = await User.find({
               _id: { $in: staffIds },
             }).lean();
-
             if (!staffForService || staffForService.length === 0) {
               this.conversationState[userId] = {};
               return `За услугата "${foundService.name}" няма налични служители в момента.`;
+            }
+
+            // If user provided a date, show available slots for all staff for that date
+            if (requestedDate) {
+              let slotsMsg = `Свободни часове за услуга "${
+                foundService.name
+              }" на ${moment(requestedDate).format("DD.MM.YYYY")}\n`;
+              let anySlots = false;
+              for (const staff of staffForService) {
+                try {
+                  const avail = await getAvailableSlots(
+                    staff._id,
+                    requestedDate,
+                    foundService.duration
+                  );
+                  const slots = avail && avail.slots ? avail.slots : [];
+                  if (slots.length > 0) {
+                    anySlots = true;
+                    const slotList = slots.map((s) => s.startTime).join(", ");
+                    slotsMsg += `• ${staff.firstName} ${staff.lastName}: ${slotList}\n`;
+                  } else {
+                    slotsMsg += `• ${staff.firstName} ${staff.lastName}: няма свободни часове\n`;
+                  }
+                } catch (e) {
+                  slotsMsg += `• ${staff.firstName} ${staff.lastName}: грешка при проверка\n`;
+                }
+              }
+              slotsMsg += anySlots
+                ? "Моля, изберете служител или друг ден."
+                : "Няма свободни часове за тази дата. Опитайте друга дата.";
+              return slotsMsg;
             }
 
             const staffNames = staffForService
@@ -349,8 +378,8 @@ class Chatbot {
 
             if (availableToday.length > 0) {
               const closestSlot = availableToday[0];
-              currentState.date = searchDate;
-              currentState.time = closestSlot.startTime;
+              currentState.suggestedDate = searchDate;
+              currentState.suggestedTime = closestSlot.startTime;
               return `Най-близкият свободен час при ${foundStaff.firstName} ${
                 foundStaff.lastName
               } е ${
@@ -359,7 +388,7 @@ class Chatbot {
                   : moment(searchDate).format("DD.MM.YYYY")
               } в ${
                 closestSlot.startTime
-              }. Моля, въведете вашето име, за да продължим (пример: Иван Петров).`;
+              }. Искате ли да запазите този час? (Отговорете с 'да', 'не' или напишете друга дата)`;
             } else {
               let foundSlot = null;
               let foundDate = null;
@@ -387,15 +416,82 @@ class Chatbot {
               }
 
               if (foundSlot && foundDate) {
-                currentState.date = foundDate;
-                currentState.time = foundSlot.startTime;
+                currentState.suggestedDate = foundDate;
+                currentState.suggestedTime = foundSlot.startTime;
                 return `${foundStaff.firstName} ${
                   foundStaff.lastName
                 } няма свободни часове днес. Най-близкият свободен час е на ${moment(
                   foundDate
                 ).format("DD.MM.YYYY")} в ${
                   foundSlot.startTime
-                }. Моля, напишете вашето име, за да продължим.`;
+                }. Искате ли да запазите този час? (Отговорете с 'да', 'не' или напишете друга дата)`;
+                // New: If a slot is suggested, wait for user confirmation or new date
+                if (
+                  currentState.service &&
+                  currentState.staff &&
+                  currentState.suggestedDate &&
+                  currentState.suggestedTime &&
+                  !(currentState.date && currentState.time)
+                ) {
+                  // Check if user replied with a date
+                  const dateFromMsg = parseRequestedDate();
+                  if (
+                    dateFromMsg &&
+                    dateFromMsg !== currentState.suggestedDate
+                  ) {
+                    // User wants to see slots for another date
+                    let slots = [];
+                    try {
+                      const avail = await getAvailableSlots(
+                        currentState.staff._id,
+                        dateFromMsg,
+                        currentState.service.duration
+                      );
+                      slots = avail.slots || [];
+                    } catch (slotErr) {
+                      console.error("Slot calc error (alt date):", slotErr);
+                      return "Възникна грешка при проверка на свободните часове. Опитайте отново.";
+                    }
+                    if (slots.length > 0) {
+                      const slotList = slots.map((s) => s.startTime).join(", ");
+                      currentState.suggestedDate = dateFromMsg;
+                      currentState.suggestedTime = slots[0].startTime;
+                      return `Свободни часове при ${
+                        currentState.staff.firstName
+                      } ${currentState.staff.lastName} на ${moment(
+                        dateFromMsg
+                      ).format(
+                        "DD.MM.YYYY"
+                      )}: ${slotList}. Искате ли да запазите първия? (Отговорете с 'да', 'не' или друга дата)`;
+                    } else {
+                      return `Няма свободни часове при ${
+                        currentState.staff.firstName
+                      } ${currentState.staff.lastName} на ${moment(
+                        dateFromMsg
+                      ).format("DD.MM.YYYY")}. Опитайте друга дата.`;
+                    }
+                  }
+                  // If user confirms
+                  if (
+                    lowerCaseMessage.includes("да") ||
+                    lowerCaseMessage.includes("потвърди") ||
+                    lowerCaseMessage.includes("запази")
+                  ) {
+                    currentState.date = currentState.suggestedDate;
+                    currentState.time = currentState.suggestedTime;
+                    // Continue to next step (name/email/phone)
+                  } else if (
+                    lowerCaseMessage.includes("не") ||
+                    lowerCaseMessage.includes("отказ")
+                  ) {
+                    // Reset suggested slot, ask for another date
+                    delete currentState.suggestedDate;
+                    delete currentState.suggestedTime;
+                    return "Моля, напишете друга дата или изберете друг служител.";
+                  } else {
+                    return `Искате ли да запазите този час? (Отговорете с 'да', 'не' или напишете друга дата)`;
+                  }
+                }
               } else {
                 this.conversationState[userId] = {};
                 return `За съжаление, ${foundStaff.firstName} ${foundStaff.lastName} няма свободни часове в следващите 7 дни. Моля, изберете друг служител или опитайте по-късно.`;
