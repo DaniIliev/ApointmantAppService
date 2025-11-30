@@ -12,16 +12,20 @@ import {
 
 export const listBusinessStaff = async (req, res, next) => {
   try {
-    const business = await Business.findById(req.user.businessId);
-
+    const { businessId } = req.query;
+    if (!businessId) {
+      return res
+        .status(400)
+        .json({ message: "businessId е задължителен в заявката." });
+    }
+    const business = await Business.findById(businessId);
     if (!business) {
       return res.status(404).json({ message: "Бизнесът не е намерен." });
     }
     const staffMembers = await User.find({
       businessId: business._id,
       role: { $in: ["business", "staff"] },
-    }).select("firstName lastName email phone role _id");
-
+    }).select("firstName lastName email phone role _id profilePictureUrl");
     res.json(staffMembers);
   } catch (e) {
     next(e);
@@ -31,7 +35,7 @@ export const listBusinessStaff = async (req, res, next) => {
 export const inviteStaff = async (req, res, next) => {
   try {
     const { email, firstName, lastName, phone } = req.body;
-    const ownerId = req.user.id; // Взимаме ID-то на собственика от `req.user` след middleware-а
+    const ownerId = req.user.id;
 
     // 1. Проверка дали потребителят е собственик на бизнес
     const business = await Business.findOne({ owner: ownerId });
@@ -62,6 +66,7 @@ export const inviteStaff = async (req, res, next) => {
       phone,
       role: "staff",
       businessId: business._id,
+      mustChangePassword: true,
     });
 
     if (business.plan && business.plan !== "none") {
@@ -157,11 +162,9 @@ export const updateStaffEmail = async (req, res, next) => {
 
     const business = await Business.findOne({ owner: ownerId });
     if (!business) {
-      return res
-        .status(403)
-        .json({
-          message: "Само собственици могат да променят имейли на служители.",
-        });
+      return res.status(403).json({
+        message: "Само собственици могат да променят имейли на служители.",
+      });
     }
 
     const staff = await User.findById(staffId);
@@ -192,6 +195,7 @@ export const updateStaffEmail = async (req, res, next) => {
       phone: staff.phone,
       role: staff.role,
       businessId: staff.businessId,
+      mustChangePassword: true,
     });
 
     // Copy subscription data if exists

@@ -23,11 +23,10 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, required: false },
     role: {
       type: String,
-      enum: ["business", "personal", "staff"],
+      enum: ["business", "personal", "staff", "admin"],
       required: true,
     },
     businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
-    // Denormalized subscription info (mirrors active Business subscription)
     subscriptionPlan: {
       type: String,
       enum: [
@@ -55,6 +54,7 @@ const userSchema = new mongoose.Schema(
     },
     subscriptionActivatedAt: { type: Date, required: false },
     subscriptionCurrentPeriodEnd: { type: Date, required: false },
+    mustChangePassword: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

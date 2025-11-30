@@ -87,6 +87,10 @@ const businessSchema = new mongoose.Schema(
       type: String,
       required: false, // ID на активния абонамент в Stripe
     },
+    planExpiresAt: {
+      type: Date,
+      required: false,
+    },
   },
 
   { timestamps: true }

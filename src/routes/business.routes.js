@@ -8,10 +8,14 @@ import {
 } from "../controllers/business.controller.js";
 import authMiddleware from "../middlewares/auth.js";
 import upload from "../storage.js";
+import { getBusinessOptions } from "../controllers/business.controller.js";
 const router = express.Router();
 
 // GET /api/business
 router.get("/", getBusinesses);
+
+// GET /api/business/options - for select dropdowns
+router.get("/options", getBusinessOptions);
 
 // GET /api/business/:id
 router.get("/:id", getBusinessById);

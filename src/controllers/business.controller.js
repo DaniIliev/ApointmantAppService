@@ -1,3 +1,16 @@
+// Get all businesses as { value: businessId, description: businessName }
+export const getBusinessOptions = async (req, res, next) => {
+  try {
+    const businesses = await Business.find().select("_id businessName").lean();
+    const options = businesses.map((b) => ({
+      id: b._id,
+      name: b.businessName,
+    }));
+    res.json(options);
+  } catch (e) {
+    next(e);
+  }
+};
 import Business from "../models/Business.js";
 import StaffSchedule from "../models/StaffSchedule.js";
 import { generateQrDataUrl } from "../utils/qrcode.js";

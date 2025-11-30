@@ -6,9 +6,13 @@ import {
   updateUser,
   updateProfilePicture,
 } from "../controllers/auth.controller.js";
+import { changePassword } from "../controllers/changePassword.controller.js";
+import authMiddleware from "../middlewares/auth.js";
+
 import upload from "../storage.js";
 const router = express.Router();
 
+router.post("/change-password", authMiddleware, changePassword);
 /**
  * @swagger
  * tags:

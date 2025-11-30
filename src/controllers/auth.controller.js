@@ -92,6 +92,7 @@ export const login = async (req, res, next) => {
         firstName: user.firstName,
         lastName: user.lastName,
         businessId: user.businessId,
+        mustChangePassword: user.mustChangePassword,
       },
     });
   } catch (e) {
