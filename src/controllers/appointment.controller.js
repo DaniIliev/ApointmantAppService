@@ -16,7 +16,7 @@ export const getDashboardData = async (req, res) => {
       appointments = await Appointment.find({ client: userId }).populate(
         "business service"
       );
-    } else if (userRole === "business" || userRole === "staff") {
+    } else if (userRole === "business") {
       const business = await Business.findOne({ owner: userId });
       if (!business) {
         return res.status(404).json({ message: "Business not found" });
@@ -24,6 +24,10 @@ export const getDashboardData = async (req, res) => {
       appointments = await Appointment.find({
         business: business._id,
       }).populate("service client");
+    } else if (userRole === "staff") {
+      appointments = await Appointment.find({ staff: userId }).populate(
+        "business service client"
+      );
     } else {
       return res.status(403).json({ message: "Invalid user role" });
     }

@@ -7,12 +7,14 @@ import {
   updateProfilePicture,
 } from "../controllers/auth.controller.js";
 import { changePassword } from "../controllers/changePassword.controller.js";
+import { sendOtp, otpLogin } from "../controllers/otp.controller.js";
 import authMiddleware from "../middlewares/auth.js";
-
 import upload from "../storage.js";
 const router = express.Router();
 
 router.post("/change-password", authMiddleware, changePassword);
+router.post("/forgot-password", sendOtp);
+router.post("/otp-login", otpLogin);
 /**
  * @swagger
  * tags:

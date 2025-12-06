@@ -123,6 +123,7 @@ export const getUserById = async (req, res, next) => {
       businessId: user.businessId,
       primaryColor: user.primaryColor,
       theme: user.theme,
+      mustChangePassword: user.mustChangePassword,
       profilePictureUrl: user.profilePictureUrl,
       subscriptionPlan: user.subscriptionPlan,
       subscriptionStatus: user.subscriptionStatus,

@@ -55,6 +55,8 @@ const userSchema = new mongoose.Schema(
     subscriptionActivatedAt: { type: Date, required: false },
     subscriptionCurrentPeriodEnd: { type: Date, required: false },
     mustChangePassword: { type: Boolean, default: false },
+    otpCode: { type: String, required: false },
+    otpExpiresAt: { type: Date, required: false },
   },
   { timestamps: true }
 );

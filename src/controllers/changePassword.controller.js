@@ -6,6 +6,7 @@ export const changePassword = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { newPassword } = req.body;
+    console.log("Change password", newPassword);
     if (!newPassword || newPassword.length < 6) {
       return res
         .status(400)

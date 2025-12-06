@@ -115,6 +115,32 @@ export const sendPlanExpirationWarning = async (
   }
 };
 
+export const sendForgotPasswordOtpEmail = async (email, firstName, otp) => {
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to: email,
+    subject: "Вашият код за еднократен вход (AppointDI®)",
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+        <h2>Здравейте, ${firstName || "потребител"}!</h2>
+        <p>Използвайте следния код за еднократен достъп до вашия профил:</p>
+        <div style="font-size: 2em; font-weight: bold; margin: 16px 0;">${otp}</div>
+        <p>Кодът е валиден 10 минути. Ако не сте заявили този код, игнорирайте този имейл.</p>
+        <p>С уважение,<br/>Екипът на AppointDI®</p>
+      </div>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`Forgot password OTP email sent to ${email}`);
+  } catch (error) {
+    console.error(
+      `Failed to send forgot password OTP email to ${email}:`,
+      error
+    );
+  }
+};
 export const sendEmailChangeNotification = async (
   oldEmail,
   newEmail,
