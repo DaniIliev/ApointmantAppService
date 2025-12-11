@@ -17,6 +17,8 @@ import chatbotRoutes from "./routes/chatbot.routes.js";
 import stripeRoutes from "./routes/stripe.routes.js";
 import webhookRoutes from "./routes/webhook.routes.js";
 import kanbanRoutes from "./routes/kanban.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
+import analyticsRoutes from "./routes/analytics.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import { swaggerDocs } from "./config/swagger.js";
 import { notFound, errorHandler } from "./middlewares/error.js";
@@ -81,6 +83,8 @@ app.use("/api/performance", performanceRoutes);
 app.use("/api/stripe", stripeRoutes);
 app.use("/api/kanban", kanbanRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
