@@ -14,7 +14,11 @@ const getTimeRange = (period, from, to, timeZone = "Europe/Sofia") => {
       endDate = localTime.clone().endOf("day").toDate();
       break;
     case "last30days":
-      startDate = localTime.clone().subtract(30, "days").startOf("day").toDate();
+      startDate = localTime
+        .clone()
+        .subtract(30, "days")
+        .startOf("day")
+        .toDate();
       endDate = localTime.clone().endOf("day").toDate();
       break;
     case "thismonth":
@@ -22,11 +26,19 @@ const getTimeRange = (period, from, to, timeZone = "Europe/Sofia") => {
       endDate = localTime.clone().endOf("day").toDate();
       break;
     case "custom":
-      startDate = from ? moment(from).tz(timeZone).startOf("day").toDate() : localTime.clone().subtract(30, "days").startOf("day").toDate();
-      endDate = to ? moment(to).tz(timeZone).endOf("day").toDate() : localTime.clone().endOf("day").toDate();
+      startDate = from
+        ? moment(from).tz(timeZone).startOf("day").toDate()
+        : localTime.clone().subtract(30, "days").startOf("day").toDate();
+      endDate = to
+        ? moment(to).tz(timeZone).endOf("day").toDate()
+        : localTime.clone().endOf("day").toDate();
       break;
     default:
-      startDate = localTime.clone().subtract(30, "days").startOf("day").toDate();
+      startDate = localTime
+        .clone()
+        .subtract(30, "days")
+        .startOf("day")
+        .toDate();
       endDate = localTime.clone().endOf("day").toDate();
   }
   return { startDate, endDate };
@@ -35,7 +47,8 @@ const getTimeRange = (period, from, to, timeZone = "Europe/Sofia") => {
 export const getAnalytics = async (req, res) => {
   try {
     const businessId = req.user?.businessId;
-    if (!businessId) return res.status(400).json({ message: "Missing business context" });
+    if (!businessId)
+      return res.status(400).json({ message: "Missing business context" });
 
     const {
       source = "appointments", // appointments|revenue|clients|services|staff
@@ -63,9 +76,21 @@ export const getAnalytics = async (req, res) => {
       if (dimension === "time_series") {
         // group by day/week/month
         let _idExpr;
-        if (groupBy === "day") _idExpr = { $dateToString: { format: "%Y-%m-%d", date: "$appointmentTime.start" } };
-        else if (groupBy === "week") _idExpr = { $dateToString: { format: "%G-%V", date: "$appointmentTime.start" } }; // ISO week
-        else _idExpr = { $dateToString: { format: "%Y-%m", date: "$appointmentTime.start" } };
+        if (groupBy === "day")
+          _idExpr = {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$appointmentTime.start",
+            },
+          };
+        else if (groupBy === "week")
+          _idExpr = {
+            $dateToString: { format: "%G-%V", date: "$appointmentTime.start" },
+          }; // ISO week
+        else
+          _idExpr = {
+            $dateToString: { format: "%Y-%m", date: "$appointmentTime.start" },
+          };
 
         const rows = await Appointment.aggregate([
           { $match: baseMatch },
@@ -73,14 +98,23 @@ export const getAnalytics = async (req, res) => {
             $group: {
               _id: _idExpr,
               total: { $sum: 1 },
-              completed: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } },
-              cancelled: { $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] } },
+              completed: {
+                $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] },
+              },
+              cancelled: {
+                $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] },
+              },
             },
           },
           { $sort: { _id: 1 } },
         ]);
         return res.json(
-          rows.map((r) => ({ name: r._id, total: r.total, completed: r.completed, cancelled: r.cancelled }))
+          rows.map((r) => ({
+            name: r._id,
+            total: r.total,
+            completed: r.completed,
+            cancelled: r.cancelled,
+          }))
         );
       }
 
@@ -128,7 +162,12 @@ export const getAnalytics = async (req, res) => {
               as: "staffDetails",
             },
           },
-          { $unwind: { path: "$staffDetails", preserveNullAndEmptyArrays: true } },
+          {
+            $unwind: {
+              path: "$staffDetails",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
           {
             $group: {
               _id: "$staff",
@@ -146,14 +185,23 @@ export const getAnalytics = async (req, res) => {
                 },
               },
               count: { $sum: 1 },
-              completed: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } },
-              cancelled: { $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] } },
+              completed: {
+                $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] },
+              },
+              cancelled: {
+                $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] },
+              },
             },
           },
           { $sort: { count: -1 } },
         ]);
         return res.json(
-          rows.map((r) => ({ name: r.name || "Unknown", total: r.count, completed: r.completed, cancelled: r.cancelled }))
+          rows.map((r) => ({
+            name: r.name || "Unknown",
+            total: r.count,
+            completed: r.completed,
+            cancelled: r.cancelled,
+          }))
         );
       }
 
@@ -177,7 +225,9 @@ export const getAnalytics = async (req, res) => {
           },
           { $sort: { value: -1 } },
         ]);
-        return res.json(rows.map((r) => ({ name: r._id || "Uncategorized", value: r.value })));
+        return res.json(
+          rows.map((r) => ({ name: r._id || "Uncategorized", value: r.value }))
+        );
       }
     }
 
@@ -185,9 +235,21 @@ export const getAnalytics = async (req, res) => {
     if (source === "revenue") {
       if (dimension === "time_series") {
         let _idExpr;
-        if (groupBy === "day") _idExpr = { $dateToString: { format: "%Y-%m-%d", date: "$appointmentTime.start" } };
-        else if (groupBy === "week") _idExpr = { $dateToString: { format: "%G-%V", date: "$appointmentTime.start" } };
-        else _idExpr = { $dateToString: { format: "%Y-%m", date: "$appointmentTime.start" } };
+        if (groupBy === "day")
+          _idExpr = {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$appointmentTime.start",
+            },
+          };
+        else if (groupBy === "week")
+          _idExpr = {
+            $dateToString: { format: "%G-%V", date: "$appointmentTime.start" },
+          };
+        else
+          _idExpr = {
+            $dateToString: { format: "%Y-%m", date: "$appointmentTime.start" },
+          };
 
         const rows = await Appointment.aggregate([
           { $match: { ...baseMatch, status: "completed" } },
@@ -255,7 +317,12 @@ export const getAnalytics = async (req, res) => {
               as: "staffDetails",
             },
           },
-          { $unwind: { path: "$staffDetails", preserveNullAndEmptyArrays: true } },
+          {
+            $unwind: {
+              path: "$staffDetails",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
           {
             $group: {
               _id: "$staff",
@@ -277,7 +344,9 @@ export const getAnalytics = async (req, res) => {
           },
           { $sort: { revenue: -1 } },
         ]);
-        return res.json(rows.map((r) => ({ name: r.name || "Unknown", value: r.revenue })));
+        return res.json(
+          rows.map((r) => ({ name: r.name || "Unknown", value: r.revenue }))
+        );
       }
     }
 
@@ -332,12 +401,22 @@ export const getAnalytics = async (req, res) => {
           },
           { $sort: { bookings: -1 } },
         ]);
-        return res.json(rows.map((r) => ({ name: r.name, duration: r.duration, price: r.price, category: r.category, bookings: r.bookings })));
+        return res.json(
+          rows.map((r) => ({
+            name: r.name,
+            duration: r.duration,
+            price: r.price,
+            category: r.category,
+            bookings: r.bookings,
+          }))
+        );
       }
     }
 
     return res.json([]);
   } catch (err) {
-    return res.status(500).json({ message: "Failed to get analytics", error: err.message });
+    return res
+      .status(500)
+      .json({ message: "Failed to get analytics", error: err.message });
   }
 };

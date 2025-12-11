@@ -1,6 +1,12 @@
 import express from "express";
 import authMiddleware from "../middlewares/auth.js";
-import { getDashboard, addItem, updateItem, removeItem, saveLayout } from "../controllers/dashboard.controller.js";
+import {
+  getDashboard,
+  addItem,
+  updateItem,
+  removeItem,
+  saveLayout,
+} from "../controllers/dashboard.controller.js";
 
 const router = express.Router();
 

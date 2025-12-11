@@ -80,8 +80,16 @@ const DashboardItemSchema = new mongoose.Schema(
 
 const DashboardSchema = new mongoose.Schema(
   {
-    owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    business: { type: mongoose.Schema.Types.ObjectId, ref: "Business", required: true },
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    business: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Business",
+      required: true,
+    },
     items: { type: [DashboardItemSchema], default: [] },
   },
   { timestamps: true }
