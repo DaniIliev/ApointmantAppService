@@ -13,6 +13,15 @@ const getTimeRange = (period, from, to, timeZone = "Europe/Sofia") => {
       startDate = localTime.clone().subtract(7, "days").startOf("day").toDate();
       endDate = localTime.clone().endOf("day").toDate();
       break;
+    case "week":
+      // alias for last 7 days
+      startDate = localTime.clone().subtract(7, "days").startOf("day").toDate();
+      endDate = localTime.clone().endOf("day").toDate();
+      break;
+    case "all":
+      startDate = null;
+      endDate = null;
+      break;
     case "last30days":
       startDate = localTime
         .clone()
@@ -64,13 +73,21 @@ export const getAnalytics = async (req, res) => {
 
     const { startDate, endDate } = getTimeRange(period, from, to);
     const business = new mongoose.Types.ObjectId(businessId);
-
     const baseMatch = {
-      business,
+      business: { $in: [business, business.toString()] },
       ...(status ? { status } : {}),
-      "appointmentTime.start": { $gte: startDate, $lte: endDate },
     };
-
+    if (startDate && endDate) {
+      baseMatch["appointmentTime.start"] = { $gte: startDate, $lte: endDate };
+    }
+    if (staffId) {
+      const sid = new mongoose.Types.ObjectId(staffId);
+      baseMatch.staff = { $in: [sid, sid.toString()] };
+    }
+    if (serviceId) {
+      const serId = new mongoose.Types.ObjectId(serviceId);
+      baseMatch.service = { $in: [serId, serId.toString()] };
+    }
     // ---- APPOINTMENTS ----
     if (source === "appointments") {
       if (dimension === "time_series") {
@@ -86,7 +103,8 @@ export const getAnalytics = async (req, res) => {
         else if (groupBy === "week")
           _idExpr = {
             $dateToString: { format: "%G-%V", date: "$appointmentTime.start" },
-          }; // ISO week
+          };
+        // ISO week
         else
           _idExpr = {
             $dateToString: { format: "%Y-%m", date: "$appointmentTime.start" },
@@ -108,6 +126,7 @@ export const getAnalytics = async (req, res) => {
           },
           { $sort: { _id: 1 } },
         ]);
+        console.log("rows", rows);
         return res.json(
           rows.map((r) => ({
             name: r._id,
@@ -252,7 +271,12 @@ export const getAnalytics = async (req, res) => {
           };
 
         const rows = await Appointment.aggregate([
-          { $match: { ...baseMatch, status: "completed" } },
+          {
+            $match: {
+              ...baseMatch,
+              // status: "completed"
+            },
+          },
           {
             $lookup: {
               from: Service.collection.name,
@@ -275,7 +299,12 @@ export const getAnalytics = async (req, res) => {
 
       if (dimension === "by_service") {
         const rows = await Appointment.aggregate([
-          { $match: { ...baseMatch, status: "completed" } },
+          {
+            $match: {
+              ...baseMatch,
+              // status: "completed"
+            },
+          },
           {
             $lookup: {
               from: Service.collection.name,
@@ -299,7 +328,12 @@ export const getAnalytics = async (req, res) => {
 
       if (dimension === "by_staff") {
         const rows = await Appointment.aggregate([
-          { $match: { ...baseMatch, status: "completed" } },
+          {
+            $match: {
+              ...baseMatch,
+              // status: "completed"
+            },
+          },
           {
             $lookup: {
               from: Service.collection.name,
