@@ -12,11 +12,11 @@ import authMiddleware from "../middlewares/auth.js";
 const router = express.Router();
 
 router.get("/dashboard", authMiddleware, getDashboardData);
-router.post("/", authMiddleware, createAppointment);
+router.post("/", createAppointment);
 router.get("/business/:businessId", authMiddleware, listBusinessAppointments);
 router.put("/:id/status", authMiddleware, updateAppointmentStatus);
 router.put("/:id", authMiddleware, updateAppointment);
 router.get("/availability", getFreeSlots);
-router.get("/closest-slot", authMiddleware, getClosestAvailableSlot);
+router.get("/closest-slot", getClosestAvailableSlot);
 
 export default router;

@@ -77,7 +77,6 @@ export const createAppointment = async (req, res, next) => {
       email,
       staff,
     } = req.body;
-    console.log("Creating appointment with data:", req.body);
     const biz = await Business.findById(business);
     if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
 
@@ -351,7 +350,6 @@ export const getFreeSlots = async (req, res, next) => {
 export const getClosestAvailableSlot = async (req, res, next) => {
   try {
     const { staffId, serviceId } = req.query;
-    console.log("staffid", staffId);
     if (!staffId || !serviceId) {
       return res.status(400).json({ message: "Missing required parameters." });
     }

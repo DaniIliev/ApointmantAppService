@@ -10,9 +10,9 @@ import authMiddleware from "../middlewares/auth.js";
 
 const router = express.Router();
 
-router.get("/staff-list", authMiddleware, listBusinessStaff);
+router.get("/staff-list", listBusinessStaff);
 router.post("/invite-staff", authMiddleware, inviteStaff);
-router.post("/by-ids", authMiddleware, getStaffByIds);
+router.post("/by-ids", getStaffByIds);
 router.delete("/:id", authMiddleware, removeStaff);
 router.patch("/:id/email", authMiddleware, updateStaffEmail);
 // router.post("/", authMiddleware, getAllStaff
