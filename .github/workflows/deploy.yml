@@ -1,20 +1,13 @@
 name: Deploy Backend to Railway
-
 on:
   push:
     branches: [main]
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm i -g @railway/cli
-
-      - name: Deploy to Production
-        run: railway up --service AppointDIService --environment production
+      - uses: actions/checkout@v4
+      - run: npm i -g @railway/cli
+      - run: railway up -d
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
