@@ -126,7 +126,6 @@ export const getAnalytics = async (req, res) => {
           },
           { $sort: { _id: 1 } },
         ]);
-        console.log("rows", rows);
         return res.json(
           rows.map((r) => ({
             name: r._id,
