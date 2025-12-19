@@ -16,6 +16,6 @@ jobs:
 
       - name: Deploy to Production
         # run: railway up --service AppointDIService --environment production
-        run: railway up -d
+        run: railway up --service ApointmantAppService --project 0bc95df5-dbd3-4b9a-bbe9-9a16889defb2 -d
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
