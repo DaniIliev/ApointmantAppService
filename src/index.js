@@ -78,7 +78,6 @@ app.use("/api/staff", staffRoutes);
 app.use("/api/staff-schedules", staffScheduleRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/chatbot", chatbotRoutes);
-// app.use("/api/performance", performanceRoutes);
 app.use("/api/stripe", stripeRoutes);
 app.use("/api/kanban", kanbanRoutes);
 app.use("/api/admin", adminRoutes);
