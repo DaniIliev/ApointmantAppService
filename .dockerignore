@@ -1,0 +1,32 @@
+# Dependencies and build artifacts
+node_modules
+dist
+build
+
+# VCS and editor
+.git
+.gitignore
+.vscode
+.DS_Store
+
+# Env files
+.env
+.env.*
+
+# Caches
+.eslintcache
+.cache
+
+# Logs and temp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+coverage
+logs
+tmp
+
+# Not needed in build context
+Dockerfile
+docker-compose.yml
+README.md
