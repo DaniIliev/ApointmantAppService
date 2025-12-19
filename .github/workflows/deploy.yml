@@ -15,6 +15,6 @@ jobs:
         run: npm i -g @railway/cli
 
       - name: Deploy to Production
-        run: railway up --service ApointmantAppByTosho --environment production -d -t ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service AppointDIService --environment production -d
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
