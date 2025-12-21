@@ -121,7 +121,9 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
           APP_TIMEZONE
         ),
         end: moment.tz(
-          `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${breakTime.end}`,
+          `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${
+            breakTime.end
+          }`,
           "YYYY-MM-DDTHH:mm",
           APP_TIMEZONE
         ),

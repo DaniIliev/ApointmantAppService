@@ -99,7 +99,7 @@ export const createAppointment = async (req, res, next) => {
       email,
       staff,
     } = req.body;
-    
+
     const biz = await Business.findById(business);
     if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
 
@@ -130,7 +130,10 @@ export const createAppointment = async (req, res, next) => {
 
     // Calculate appointment time in app timezone
     const startDateTime = moment.tz(dateTime, APP_TIMEZONE).toDate();
-    const endDateTime = moment.tz(dateTime, APP_TIMEZONE).add(srv.duration, "minutes").toDate();
+    const endDateTime = moment
+      .tz(dateTime, APP_TIMEZONE)
+      .add(srv.duration, "minutes")
+      .toDate();
 
     const appointment = await Appointment.create({
       business,
@@ -469,14 +472,18 @@ export const getClosestAvailableSlot = async (req, res, next) => {
         searchDate,
         serviceDuration
       );
-      
+
       const now = moment.tz(APP_TIMEZONE);
-      
+
       const availableToday =
         i === 0
           ? slots.filter((slot) => {
               // Parse the slot time in app timezone
-              const slotDateTime = moment.tz(`${searchDate}T${slot.startTime}`, "YYYY-MM-DDTHH:mm", APP_TIMEZONE);
+              const slotDateTime = moment.tz(
+                `${searchDate}T${slot.startTime}`,
+                "YYYY-MM-DDTHH:mm",
+                APP_TIMEZONE
+              );
               return slotDateTime.isAfter(now);
             })
           : slots;
