@@ -453,6 +453,14 @@ export const getClosestAvailableSlot = async (req, res, next) => {
       return res.status(400).json({ message: "Missing required parameters." });
     }
 
+    // Availability is time-sensitive; disable caching to avoid stale results on CDNs/browsers.
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+      "Surrogate-Control": "no-store",
+    });
+
     const service = await Service.findById(serviceId);
     if (!service) {
       return res.status(404).json({ message: "Service not found." });
@@ -460,11 +468,15 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     const serviceDuration = service.duration;
 
     let closestSlot = null;
-    let daysToSearch = 20; // Search for the next 20 days
+    const daysToSearch = 20; // Search for the next 20 days
     let foundDateObject = null; // Ще съхранява moment обект
 
     for (let i = 0; i < daysToSearch; i++) {
-      const searchDateMoment = moment.tz(APP_TIMEZONE).add(i, "days");
+      // Always start from midnight in the app timezone to avoid drift across environments
+      const searchDateMoment = moment
+        .tz(APP_TIMEZONE)
+        .startOf("day")
+        .add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
       console.log("Date format", staffId, searchDate, serviceDuration);
       const { slots } = await getAvailableSlots(
