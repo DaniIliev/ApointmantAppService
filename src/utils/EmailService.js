@@ -3,6 +3,12 @@ import moment from "moment";
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
+  pool: true,
+  maxConnections: 2,
+  maxMessages: 20,
+  connectionTimeout: 10000, // fail fast if SMTP blocked in env
+  greetingTimeout: 10000,
+  socketTimeout: 10000,
   auth: {
     user: "appointmentappdi@gmail.com", // Твоят имейл адрес
     pass: "gmaa swqn jvqh dudf", // Парола на приложението, генерирана от Google
