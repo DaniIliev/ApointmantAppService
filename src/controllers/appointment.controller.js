@@ -100,6 +100,8 @@ export const createAppointment = async (req, res, next) => {
       staff,
     } = req.body;
 
+    console.log("Creating appointment with dateTime:", dateTime, "- Current Sofia time:", moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z"));
+
     const biz = await Business.findById(business);
     if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
 
@@ -116,7 +118,9 @@ export const createAppointment = async (req, res, next) => {
       });
     }
 
-    const availability = await getAvailableSlots(staff, dateTime, srv.duration);
+    // Extract date from dateTime for availability check
+    const appointmentDateOnly = moment.tz(dateTime, APP_TIMEZONE).format("YYYY-MM-DD");
+    const availability = await getAvailableSlots(staff, appointmentDateOnly, srv.duration);
     const requestedSlot = moment.tz(dateTime, APP_TIMEZONE).format("HH:mm");
     const isSlotAvailable = availability.slots.some(
       (slot) => slot.startTime === requestedSlot
@@ -128,12 +132,13 @@ export const createAppointment = async (req, res, next) => {
         .json({ message: "Избраният час е зает или невалиден." });
     }
 
-    // Calculate appointment time in app timezone
+    // Calculate appointment time in app timezone (Sofia) - will be stored as UTC in DB
     const startDateTime = moment.tz(dateTime, APP_TIMEZONE).toDate();
     const endDateTime = moment
       .tz(dateTime, APP_TIMEZONE)
       .add(srv.duration, "minutes")
       .toDate();
+    console.log("Appointment time (UTC):", startDateTime, "-", endDateTime);
 
     const appointment = await Appointment.create({
       business,
@@ -475,9 +480,13 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     }
     const serviceDuration = service.duration;
 
+    // Log server timezone context for debugging
+    console.log("Current server time (Sofia):", moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z"));
+
     let closestSlot = null;
     const daysToSearch = 20; // Search for the next 20 days
     let foundDateObject = null; // Ще съхранява moment обект
+    const now = moment.tz(APP_TIMEZONE); // Get current Sofia time once
 
     for (let i = 0; i < daysToSearch; i++) {
       // Always start from midnight in the app timezone to avoid drift across environments
@@ -486,31 +495,33 @@ export const getClosestAvailableSlot = async (req, res, next) => {
         .startOf("day")
         .add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
-      console.log("Date format", staffId, searchDate, serviceDuration);
+      console.log("Searching for closest slot on:", searchDate, "- Staff:", staffId, "- Duration:", serviceDuration);
       const { slots } = await getAvailableSlots(
         staffId,
         searchDate,
         serviceDuration
       );
 
-      const now = moment.tz(APP_TIMEZONE);
-
+      // Filter today's slots to only future times (in Sofia timezone)
       const availableToday =
         i === 0
           ? slots.filter((slot) => {
-              // Parse the slot time in app timezone
+              // Critical: construct full datetime in Sofia timezone for accurate comparison
               const slotDateTime = moment.tz(
                 `${searchDate}T${slot.startTime}`,
                 "YYYY-MM-DDTHH:mm",
                 APP_TIMEZONE
               );
-              return slotDateTime.isAfter(now);
+              const isAfterNow = slotDateTime.isAfter(now);
+              console.log(`Slot ${slot.startTime}: isAfter(now=${now.format("HH:mm")}) = ${isAfterNow}`);
+              return isAfterNow;
             })
           : slots;
 
       if (availableToday.length > 0) {
         closestSlot = availableToday[0];
         foundDateObject = searchDateMoment;
+        console.log("Found closest slot:", closestSlot, "on", foundDateObject.format("YYYY-MM-DD"));
         break;
       }
     }

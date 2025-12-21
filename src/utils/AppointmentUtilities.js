@@ -49,8 +49,9 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
       return { slots: [], message: "Няма работен график за избраната дата." };
     }
 
+    // Ensure dailyWorkHours date is compared in app timezone (not server/UTC time)
     const dailyWorkHours = dailySchedule.workHours.find((wh) =>
-      moment(wh.date).isSame(requestedDate, "day")
+      moment.tz(wh.date, APP_TIMEZONE).isSame(requestedDate, "day")
     );
 
     if (!dailyWorkHours || dailyWorkHours.isDayOff) {
@@ -85,18 +86,15 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     }).sort({ "appointmentTime.start": 1 });
 
     console.log("Booked Appointments:", bookedAppointments);
-    // Parse times in app timezone to ensure consistency
+    // Parse times in app timezone to ensure consistency; use fixed date in Sofia time
+    const baseDate = moment.tz(dailyWorkHours.date, APP_TIMEZONE).format("YYYY-MM-DD");
     const workStart = moment.tz(
-      `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${
-        dailyWorkHours.workTime.start
-      }`,
+      `${baseDate}T${dailyWorkHours.workTime.start}`,
       "YYYY-MM-DDTHH:mm",
       APP_TIMEZONE
     );
     const workEnd = moment.tz(
-      `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${
-        dailyWorkHours.workTime.end
-      }`,
+      `${baseDate}T${dailyWorkHours.workTime.end}`,
       "YYYY-MM-DDTHH:mm",
       APP_TIMEZONE
     );
@@ -117,20 +115,16 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
       });
     }
 
-    // Добавяме почивките
+    // Добавяме почивките (use baseDate to avoid timezone drift)
     for (const breakTime of dailyWorkHours.breaks) {
       busyIntervals.push({
         start: moment.tz(
-          `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${
-            breakTime.start
-          }`,
+          `${baseDate}T${breakTime.start}`,
           "YYYY-MM-DDTHH:mm",
           APP_TIMEZONE
         ),
         end: moment.tz(
-          `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${
-            breakTime.end
-          }`,
+          `${baseDate}T${breakTime.end}`,
           "YYYY-MM-DDTHH:mm",
           APP_TIMEZONE
         ),
