@@ -11,8 +11,14 @@ import DailySchedule from "../models/DailySchedule.js";
 
 export const getAvailableSlots = async (staffId, date, serviceDuration) => {
   try {
-    // Parse date in the app's timezone to ensure consistency
-    const requestedDate = moment.tz(date, APP_TIMEZONE).startOf("day");
+    // Parse date strictly in app timezone; accept bare YYYY-MM-DD or ISO and anchor to the provided day.
+    const requestedDate = moment
+      .tz(date, ["YYYY-MM-DD", moment.ISO_8601], APP_TIMEZONE)
+      .startOf("day");
+
+    if (!requestedDate.isValid()) {
+      return { slots: [], message: "Невалидна дата." };
+    }
 
     // Validate duration to avoid infinite loops / timeouts
     if (!Number.isFinite(serviceDuration) || serviceDuration <= 0) {

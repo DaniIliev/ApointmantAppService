@@ -426,6 +426,14 @@ export const getFreeSlots = async (req, res, next) => {
         .json({ message: "Липсват задължителни параметри." });
     }
 
+    // Availability must never be cached; edge/CDN caches can return stale slots.
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+      "Surrogate-Control": "no-store",
+    });
+
     const service = await Service.findById(serviceId);
     if (!service) {
       return res.status(404).json({ message: "Услугата не е намерена." });
@@ -453,7 +461,7 @@ export const getClosestAvailableSlot = async (req, res, next) => {
       return res.status(400).json({ message: "Missing required parameters." });
     }
 
-    // Availability is time-sensitive; disable caching to avoid stale results on CDNs/browsers.
+    // Availability must never be cached; edge caches were serving stale data.
     res.set({
       "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
       Pragma: "no-cache",
