@@ -11,6 +11,11 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     // Use local time to avoid timezone shifts between environments
     const requestedDate = moment(date).startOf("day");
 
+    // Validate duration to avoid infinite loops / timeouts
+    if (!Number.isFinite(serviceDuration) || serviceDuration <= 0) {
+      return { slots: [], message: "Невалидна продължителност на услугата." };
+    }
+
     // Първо, намираме StaffSchedule за служителя
     const staffSchedule = await StaffSchedule.findOne({ staff: staffId });
     if (!staffSchedule) {
@@ -55,7 +60,8 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
       Infinity
     );
     // **ВАЖНО:** Проверяваме дали избраната услуга е най-кратката, ако не, използваме нейната продължителност за стъпката
-    const slotStep = Math.min(serviceDuration, minServiceDuration);
+    const stepCandidate = Math.min(serviceDuration, minServiceDuration);
+    const slotStep = Number.isFinite(stepCandidate) && stepCandidate > 0 ? stepCandidate : serviceDuration;
 
     const bookedAppointments = await Appointment.find({
       staff: staffId,
