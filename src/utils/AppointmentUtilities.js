@@ -61,7 +61,10 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     );
     // **ВАЖНО:** Проверяваме дали избраната услуга е най-кратката, ако не, използваме нейната продължителност за стъпката
     const stepCandidate = Math.min(serviceDuration, minServiceDuration);
-    const slotStep = Number.isFinite(stepCandidate) && stepCandidate > 0 ? stepCandidate : serviceDuration;
+    const slotStep =
+      Number.isFinite(stepCandidate) && stepCandidate > 0
+        ? stepCandidate
+        : serviceDuration;
 
     const bookedAppointments = await Appointment.find({
       staff: staffId,
