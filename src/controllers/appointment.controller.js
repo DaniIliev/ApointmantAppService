@@ -100,7 +100,12 @@ export const createAppointment = async (req, res, next) => {
       staff,
     } = req.body;
 
-    console.log("Creating appointment with dateTime:", dateTime, "- Current Sofia time:", moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z"));
+    console.log(
+      "Creating appointment with dateTime:",
+      dateTime,
+      "- Current Sofia time:",
+      moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z")
+    );
 
     const biz = await Business.findById(business);
     if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
@@ -119,8 +124,14 @@ export const createAppointment = async (req, res, next) => {
     }
 
     // Extract date from dateTime for availability check
-    const appointmentDateOnly = moment.tz(dateTime, APP_TIMEZONE).format("YYYY-MM-DD");
-    const availability = await getAvailableSlots(staff, appointmentDateOnly, srv.duration);
+    const appointmentDateOnly = moment
+      .tz(dateTime, APP_TIMEZONE)
+      .format("YYYY-MM-DD");
+    const availability = await getAvailableSlots(
+      staff,
+      appointmentDateOnly,
+      srv.duration
+    );
     const requestedSlot = moment.tz(dateTime, APP_TIMEZONE).format("HH:mm");
     const isSlotAvailable = availability.slots.some(
       (slot) => slot.startTime === requestedSlot
@@ -481,7 +492,10 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     const serviceDuration = service.duration;
 
     // Log server timezone context for debugging
-    console.log("Current server time (Sofia):", moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z"));
+    console.log(
+      "Current server time (Sofia):",
+      moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z")
+    );
 
     let closestSlot = null;
     const daysToSearch = 20; // Search for the next 20 days
@@ -495,7 +509,14 @@ export const getClosestAvailableSlot = async (req, res, next) => {
         .startOf("day")
         .add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
-      console.log("Searching for closest slot on:", searchDate, "- Staff:", staffId, "- Duration:", serviceDuration);
+      console.log(
+        "Searching for closest slot on:",
+        searchDate,
+        "- Staff:",
+        staffId,
+        "- Duration:",
+        serviceDuration
+      );
       const { slots } = await getAvailableSlots(
         staffId,
         searchDate,
@@ -513,7 +534,11 @@ export const getClosestAvailableSlot = async (req, res, next) => {
                 APP_TIMEZONE
               );
               const isAfterNow = slotDateTime.isAfter(now);
-              console.log(`Slot ${slot.startTime}: isAfter(now=${now.format("HH:mm")}) = ${isAfterNow}`);
+              console.log(
+                `Slot ${slot.startTime}: isAfter(now=${now.format(
+                  "HH:mm"
+                )}) = ${isAfterNow}`
+              );
               return isAfterNow;
             })
           : slots;
@@ -521,7 +546,12 @@ export const getClosestAvailableSlot = async (req, res, next) => {
       if (availableToday.length > 0) {
         closestSlot = availableToday[0];
         foundDateObject = searchDateMoment;
-        console.log("Found closest slot:", closestSlot, "on", foundDateObject.format("YYYY-MM-DD"));
+        console.log(
+          "Found closest slot:",
+          closestSlot,
+          "on",
+          foundDateObject.format("YYYY-MM-DD")
+        );
         break;
       }
     }

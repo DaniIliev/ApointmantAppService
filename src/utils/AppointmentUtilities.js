@@ -87,7 +87,9 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
 
     console.log("Booked Appointments:", bookedAppointments);
     // Parse times in app timezone to ensure consistency; use fixed date in Sofia time
-    const baseDate = moment.tz(dailyWorkHours.date, APP_TIMEZONE).format("YYYY-MM-DD");
+    const baseDate = moment
+      .tz(dailyWorkHours.date, APP_TIMEZONE)
+      .format("YYYY-MM-DD");
     const workStart = moment.tz(
       `${baseDate}T${dailyWorkHours.workTime.start}`,
       "YYYY-MM-DDTHH:mm",
