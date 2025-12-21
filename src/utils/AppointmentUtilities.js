@@ -8,7 +8,8 @@ import DailySchedule from "../models/DailySchedule.js";
 
 export const getAvailableSlots = async (staffId, date, serviceDuration) => {
   try {
-    const requestedDate = moment.utc(date).startOf("day");
+    // Use local time to avoid timezone shifts between environments
+    const requestedDate = moment(date).startOf("day");
 
     // Първо, намираме StaffSchedule за служителя
     const staffSchedule = await StaffSchedule.findOne({ staff: staffId });
@@ -23,13 +24,12 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     // const dailySchedule = await DailySchedule.findOne({
     //   "workHours.date": requestedDate.toDate(),
     // });
-    const startOfDay = requestedDate.clone().utc().startOf("day").toDate();
-    const endOfDay = requestedDate.clone().utc().endOf("day").toDate();
+    const startOfDay = requestedDate.clone().startOf("day").toDate();
+    const endOfDay = requestedDate.clone().endOf("day").toDate();
 
     const dailySchedule = await DailySchedule.findOne({
       "workHours.date": { $gte: startOfDay, $lte: endOfDay },
     });
-    console.log("dailySchedule", dailySchedule);
 
     if (!dailySchedule) {
       return { slots: [], message: "Няма работен график за избраната дата." };
@@ -38,7 +38,6 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     const dailyWorkHours = dailySchedule.workHours.find((wh) =>
       moment(wh.date).isSame(requestedDate, "day")
     );
-    console.log("dailyWorkHours", dailyWorkHours);
 
     if (!dailyWorkHours || dailyWorkHours.isDayOff) {
       return { slots: [], message: "Служителят не работи на тази дата." };
@@ -47,7 +46,6 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     const staffServices = await Service.find({
       "staffs._id": staffId,
     });
-    console.log("staffServices", staffServices);
 
     if (!staffServices || staffServices.length === 0) {
       return { slots: [], message: "Служителят не предлага услуги." };
@@ -62,9 +60,10 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     const bookedAppointments = await Appointment.find({
       staff: staffId,
       "appointmentTime.start": {
-        $gte: requestedDate.toDate(),
-        $lt: moment(requestedDate).add(1, "day").toDate(),
+        $gte: startOfDay,
+        $lt: endOfDay,
       },
+      status: { $ne: "cancelled" }, // Exclude cancelled appointments
     }).sort({ "appointmentTime.start": 1 });
 
     const workStart = moment(

@@ -2,10 +2,29 @@ import Appointment from "../models/Appointment.js";
 import Business from "../models/Business.js";
 import Service from "../models/Service.js";
 import Alert from "../models/Alert.js";
-import { sendConfirmationEmail } from "../utils/EmailService.js";
+import User from "../models/User.js";
+import {
+  sendConfirmationEmail,
+  sendAppointmentConfirmationToNewUser,
+  sendAppointmentConfirmationToExistingUser,
+  sendAppointmentCancelledEmail,
+} from "../utils/EmailService.js";
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
 import moment from "moment";
 import { io } from "../index.js";
+import bcrypt from "bcryptjs";
+
+// Helper function to generate a random password
+const generateTemporaryPassword = () => {
+  const length = 12;
+  const charset =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
+  let password = "";
+  for (let i = 0; i < length; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+  return password;
+};
 
 export const getDashboardData = async (req, res) => {
   try {
@@ -105,7 +124,7 @@ export const createAppointment = async (req, res, next) => {
         .json({ message: "Избраният час е зает или невалиден." });
     }
 
-    // ПРОМЯНА: Изчисляваме началния и крайния час като Date обекти
+    // Calculate appointment time
     const startDateTime = moment(dateTime).toDate();
     const endDateTime = moment(dateTime).add(srv.duration, "minutes").toDate();
 
@@ -130,6 +149,55 @@ export const createAppointment = async (req, res, next) => {
       message: `Нова заявка от ${clientName} за услуга "${srv.name}"`,
       type: "appointment",
     });
+
+    // Check if user with this email exists
+    const existingUser = await User.findOne({ email });
+    const dashboardLink = `${process.env.CLIENT_URL}/dashboard`;
+
+    if (!existingUser) {
+      // Create new user account for the client
+      const tempPassword = generateTemporaryPassword();
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+      const newUser = await User.create({
+        email,
+        passwordHash,
+        role: "personal",
+        firstName: clientName.split(" ")[0] || clientName,
+        lastName: clientName.split(" ").slice(1).join(" ") || "",
+        phone: clientPhone,
+        mustChangePassword: true,
+      });
+
+      // Update the appointment with the new user's ID
+      appointment.client = newUser._id;
+      await appointment.save();
+
+      // Send email with new account credentials
+      await sendAppointmentConfirmationToNewUser(
+        email,
+        clientName,
+        email,
+        tempPassword,
+        srv.name,
+        startDateTime,
+        endDateTime,
+        biz.businessName,
+        dashboardLink
+      );
+    } else {
+      // Send email with appointment details and cancel link
+      await sendAppointmentConfirmationToExistingUser(
+        email,
+        clientName,
+        srv.name,
+        startDateTime,
+        endDateTime,
+        biz.businessName,
+        dashboardLink,
+        appointment._id
+      );
+    }
 
     io.to(staff).emit("newAppointment", {
       appointment: {
@@ -184,8 +252,16 @@ export const updateAppointmentStatus = async (req, res, next) => {
       return res.status(403).json({ message: "Не сте собственик" });
     }
 
+    // Check if appointment is cancelled
+    if (appt.status === "cancelled") {
+      return res.status(400).json({
+        message: "Не може да се промени статусът на отменена встреча",
+      });
+    }
+
     appt.status = status;
     await appt.save();
+
     if (status === "confirmed" && appt.email) {
       await sendConfirmationEmail(
         appt.email,
@@ -193,9 +269,25 @@ export const updateAppointmentStatus = async (req, res, next) => {
         appt.service.name,
         appt.appointmentTime.start,
         appt.appointmentTime.end,
-        appt.business.name
+        appt.business.businessName,
+        `${process.env.CLIENT_URL}/dashboard`,
+        null,
+        appt._id
       );
     }
+
+    if (status === "cancelled" && appt.email) {
+      await sendAppointmentCancelledEmail(
+        appt.email,
+        appt.clientName,
+        appt.service.name,
+        appt.appointmentTime.start,
+        appt.appointmentTime.end,
+        appt.business.businessName,
+        `${process.env.CLIENT_URL}/dashboard`
+      );
+    }
+
     res.json(appt);
   } catch (e) {
     next(e);
@@ -404,6 +496,26 @@ export const getClosestAvailableSlot = async (req, res, next) => {
         message: "No available slots found in the next 20 days.",
       });
     }
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getAppointmentById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const appointment = await Appointment.findById(id)
+      .populate("business", "businessName phone")
+      .populate("service", "name duration price")
+      .populate("staff", "firstName lastName email")
+      .populate("client", "email firstName lastName phone");
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment не е намерен" });
+    }
+
+    res.json(appointment);
   } catch (e) {
     next(e);
   }
