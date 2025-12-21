@@ -10,7 +10,10 @@ import {
   sendAppointmentCancelledEmail,
 } from "../utils/EmailService.js";
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
-import moment from "moment";
+import moment from "moment-timezone";
+
+// Set the timezone for the application (Bulgaria)
+const APP_TIMEZONE = "Europe/Sofia";
 import { io } from "../index.js";
 import bcrypt from "bcryptjs";
 
@@ -96,6 +99,7 @@ export const createAppointment = async (req, res, next) => {
       email,
       staff,
     } = req.body;
+    
     const biz = await Business.findById(business);
     if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
 
@@ -113,7 +117,7 @@ export const createAppointment = async (req, res, next) => {
     }
 
     const availability = await getAvailableSlots(staff, dateTime, srv.duration);
-    const requestedSlot = moment(dateTime).format("HH:mm");
+    const requestedSlot = moment.tz(dateTime, APP_TIMEZONE).format("HH:mm");
     const isSlotAvailable = availability.slots.some(
       (slot) => slot.startTime === requestedSlot
     );
@@ -124,9 +128,9 @@ export const createAppointment = async (req, res, next) => {
         .json({ message: "Избраният час е зает или невалиден." });
     }
 
-    // Calculate appointment time
-    const startDateTime = moment(dateTime).toDate();
-    const endDateTime = moment(dateTime).add(srv.duration, "minutes").toDate();
+    // Calculate appointment time in app timezone
+    const startDateTime = moment.tz(dateTime, APP_TIMEZONE).toDate();
+    const endDateTime = moment.tz(dateTime, APP_TIMEZONE).add(srv.duration, "minutes").toDate();
 
     const appointment = await Appointment.create({
       business,
@@ -457,7 +461,7 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     let foundDateObject = null; // Ще съхранява moment обект
 
     for (let i = 0; i < daysToSearch; i++) {
-      const searchDateMoment = moment().add(i, "days");
+      const searchDateMoment = moment.tz(APP_TIMEZONE).add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
       // console.log(staffId, searchDate, serviceDuration);
       const { slots } = await getAvailableSlots(
@@ -465,13 +469,16 @@ export const getClosestAvailableSlot = async (req, res, next) => {
         searchDate,
         serviceDuration
       );
-      // console.log("slots", slots);
-      const now = moment();
+      
+      const now = moment.tz(APP_TIMEZONE);
+      
       const availableToday =
         i === 0
-          ? slots.filter((slot) =>
-              moment(`${searchDate}T${slot.startTime}`).isAfter(now)
-            )
+          ? slots.filter((slot) => {
+              // Parse the slot time in app timezone
+              const slotDateTime = moment.tz(`${searchDate}T${slot.startTime}`, "YYYY-MM-DDTHH:mm", APP_TIMEZONE);
+              return slotDateTime.isAfter(now);
+            })
           : slots;
 
       if (availableToday.length > 0) {
