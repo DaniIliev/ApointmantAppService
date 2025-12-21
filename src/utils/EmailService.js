@@ -15,6 +15,20 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// Send emails in background so API responses aren't blocked by SMTP
+const sendInBackground = (mailOptions, successMsg, errorPrefix) => {
+  setImmediate(() => {
+    transporter
+      .sendMail(mailOptions)
+      .then(() => {
+        console.log(successMsg);
+      })
+      .catch((error) => {
+        console.error(errorPrefix, error);
+      });
+  });
+};
+
 export const sendConfirmationEmail = async (
   to,
   clientName,
@@ -98,12 +112,11 @@ export const sendConfirmationEmail = async (
     html: html,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log("Confirmation email sent successfully.");
-  } catch (error) {
-    console.error("Failed to send confirmation email:", error);
-  }
+  sendInBackground(
+    mailOptions,
+    "Confirmation email sent successfully.",
+    "Failed to send confirmation email:"
+  );
 };
 
 export const inviteStaffEmail = async (
@@ -130,12 +143,11 @@ export const inviteStaffEmail = async (
       `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log("Confirmation email sent successfully.");
-  } catch (error) {
-    console.error("Failed to send confirmation email:", error);
-  }
+  sendInBackground(
+    mailOptions,
+    "Invitation email sent successfully.",
+    "Failed to send invitation email:"
+  );
 };
 
 export const sendPlanExpirationWarning = async (
@@ -164,12 +176,11 @@ export const sendPlanExpirationWarning = async (
       `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Expiration warning email sent to ${to}`);
-  } catch (error) {
-    console.error(`Failed to send expiration warning email to ${to}:`, error);
-  }
+  sendInBackground(
+    mailOptions,
+    `Expiration warning email sent to ${to}`,
+    `Failed to send expiration warning email to ${to}:`
+  );
 };
 
 export const sendForgotPasswordOtpEmail = async (email, firstName, otp) => {
@@ -188,15 +199,11 @@ export const sendForgotPasswordOtpEmail = async (email, firstName, otp) => {
     `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Forgot password OTP email sent to ${email}`);
-  } catch (error) {
-    console.error(
-      `Failed to send forgot password OTP email to ${email}:`,
-      error
-    );
-  }
+  sendInBackground(
+    mailOptions,
+    `Forgot password OTP email sent to ${email}`,
+    `Failed to send forgot password OTP email to ${email}:`
+  );
 };
 export const sendEmailChangeNotification = async (
   oldEmail,
@@ -243,10 +250,16 @@ export const sendEmailChangeNotification = async (
   };
 
   try {
-    await transporter.sendMail(newEmailOptions);
-    await transporter.sendMail(oldEmailOptions);
-    console.log(
-      `Email change notifications sent to ${oldEmail} and ${newEmail}`
+    // Fire both in background
+    sendInBackground(
+      newEmailOptions,
+      `Email change notification sent to ${newEmail}`,
+      `Failed to send email change notification to ${newEmail}:`
+    );
+    sendInBackground(
+      oldEmailOptions,
+      `Email change notification sent to ${oldEmail}`,
+      `Failed to send email change notification to ${oldEmail}:`
     );
   } catch (error) {
     console.error("Failed to send email change notifications:", error);
@@ -311,15 +324,11 @@ export const sendAppointmentConfirmationToNewUser = async (
     `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Appointment confirmation email sent to ${to} (new user)`);
-  } catch (error) {
-    console.error(
-      `Failed to send appointment confirmation email to ${to}:`,
-      error
-    );
-  }
+  sendInBackground(
+    mailOptions,
+    `Appointment confirmation email sent to ${to} (new user)`,
+    `Failed to send appointment confirmation email to ${to}:`
+  );
 };
 
 export const sendAppointmentConfirmationToExistingUser = async (
@@ -377,15 +386,11 @@ export const sendAppointmentConfirmationToExistingUser = async (
     `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Appointment confirmation email sent to ${to} (existing user)`);
-  } catch (error) {
-    console.error(
-      `Failed to send appointment confirmation email to ${to}:`,
-      error
-    );
-  }
+  sendInBackground(
+    mailOptions,
+    `Appointment confirmation email sent to ${to} (existing user)`,
+    `Failed to send appointment confirmation email to ${to}:`
+  );
 };
 
 export const sendAppointmentCancelledEmail = async (
@@ -437,13 +442,9 @@ export const sendAppointmentCancelledEmail = async (
     `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Appointment cancellation confirmation email sent to ${to}`);
-  } catch (error) {
-    console.error(
-      `Failed to send appointment cancellation email to ${to}:`,
-      error
-    );
-  }
+  sendInBackground(
+    mailOptions,
+    `Appointment cancellation confirmation email sent to ${to}`,
+    `Failed to send appointment cancellation email to ${to}:`
+  );
 };
