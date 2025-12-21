@@ -466,7 +466,7 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     for (let i = 0; i < daysToSearch; i++) {
       const searchDateMoment = moment.tz(APP_TIMEZONE).add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
-      // console.log(staffId, searchDate, serviceDuration);
+      console.log("Date format", staffId, searchDate, serviceDuration);
       const { slots } = await getAvailableSlots(
         staffId,
         searchDate,
