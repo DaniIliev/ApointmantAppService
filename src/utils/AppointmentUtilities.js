@@ -78,6 +78,7 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
       status: { $ne: "cancelled" }, // Exclude cancelled appointments
     }).sort({ "appointmentTime.start": 1 });
 
+    console.log("Booked Appointments:", bookedAppointments);
     // Parse times in app timezone to ensure consistency
     const workStart = moment.tz(
       `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${

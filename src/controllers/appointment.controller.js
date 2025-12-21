@@ -43,9 +43,9 @@ export const getDashboardData = async (req, res) => {
       if (!business) {
         return res.status(404).json({ message: "Business not found" });
       }
-      appointments = await Appointment.find({
-        business: business._id,
-      }).populate("service client");
+      appointments = await Appointment.find({ staff: userId }).populate(
+        "business service client"
+      );
     } else if (userRole === "staff") {
       appointments = await Appointment.find({ staff: userId }).populate(
         "business service client"
@@ -205,7 +205,7 @@ export const createAppointment = async (req, res, next) => {
         appointment._id
       );
     }
-
+    console.log("Created appointment:", appointment);
     io.to(staff).emit("newAppointment", {
       appointment: {
         _id: appointment._id,
