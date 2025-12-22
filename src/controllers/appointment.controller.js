@@ -595,3 +595,46 @@ export const getAppointmentById = async (req, res, next) => {
     next(e);
   }
 };
+
+export const deleteAppointment = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const appointment = await Appointment.findById(id);
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    // Check authorization - only business owner, staff assigned to appointment, or admin can delete
+    if (userRole === "business") {
+      const business = await Business.findOne({ owner: userId });
+      if (
+        !business ||
+        appointment.business.toString() !== business._id.toString()
+      ) {
+        return res
+          .status(403)
+          .json({ message: "Unauthorized to delete this appointment" });
+      }
+    } else if (userRole === "staff") {
+      if (appointment.staff.toString() !== userId) {
+        return res
+          .status(403)
+          .json({ message: "Unauthorized to delete this appointment" });
+      }
+    } else if (userRole !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "Unauthorized to delete appointments" });
+    }
+
+    await Appointment.findByIdAndDelete(id);
+
+    res.status(200).json({ message: "Appointment deleted successfully" });
+  } catch (e) {
+    next(e);
+  }
+};
