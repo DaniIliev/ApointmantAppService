@@ -91,6 +91,19 @@ const businessSchema = new mongoose.Schema(
       type: Date,
       required: false,
     },
+    // Stripe Connect fields - за приемане на плащания от клиенти
+    stripeConnectAccountId: {
+      type: String,
+      required: false, // ID на Connect акаунта в Stripe
+    },
+    stripeConnectChargesEnabled: {
+      type: Boolean,
+      default: false, // Дали акаунтът може да приема плащания
+    },
+    stripeConnectDetailsSubmitted: {
+      type: Boolean,
+      default: false, // Дали са подадени всички необходими данни
+    },
   },
 
   { timestamps: true }

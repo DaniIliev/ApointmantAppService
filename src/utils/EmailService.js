@@ -448,3 +448,108 @@ export const sendAppointmentCancelledEmail = async (
     `Failed to send appointment cancellation email to ${to}:`
   );
 };
+
+export const sendPaymentAuthorizationEmail = async (
+  to,
+  clientName,
+  serviceName,
+  businessName,
+  amount,
+  currency
+) => {
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to,
+    subject: `Плащане – сума е блокирана за ${serviceName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2>Здравейте, ${clientName}!</h2>
+        <p>Беше извършена предварителна авторизация на сумата за услугата <strong>${serviceName}</strong>.</p>
+        <p>Сумата <strong>${(amount / 100).toFixed(
+          2
+        )} ${currency.toUpperCase()}</strong> е временно блокирана по вашата карта.</p>
+        <p>След като служителят одобри часа, сумата ще бъде изтеглена. Ако заявката бъде отказана, блокираният лимит ще бъде освободен автоматично.</p>
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          С уважение,<br/>
+          Екипът на ${businessName}
+        </p>
+      </div>
+    `,
+  };
+
+  sendInBackground(
+    mailOptions,
+    `Payment authorization email sent to ${to}`,
+    `Failed to send payment authorization email to ${to}:`
+  );
+};
+
+export const sendPaymentCapturedEmail = async (
+  to,
+  clientName,
+  serviceName,
+  businessName,
+  amount,
+  currency
+) => {
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to,
+    subject: `Плащане успешно – ${serviceName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2>Здравейте, ${clientName}!</h2>
+        <p>Плащането за услугата <strong>${serviceName}</strong> беше успешно обработено.</p>
+        <p>Сума: <strong>${(amount / 100).toFixed(
+          2
+        )} ${currency.toUpperCase()}</strong></p>
+        <p>Благодарим Ви за доверието!</p>
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          С уважение,<br/>
+          Екипът на ${businessName}
+        </p>
+      </div>
+    `,
+  };
+
+  sendInBackground(
+    mailOptions,
+    `Payment captured email sent to ${to}`,
+    `Failed to send payment captured email to ${to}:`
+  );
+};
+
+export const sendPaymentRefundedEmail = async (
+  to,
+  clientName,
+  serviceName,
+  businessName,
+  amount,
+  currency
+) => {
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to,
+    subject: `Възстановяване на сума – ${serviceName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2>Здравейте, ${clientName}!</h2>
+        <p>Сумата за услугата <strong>${serviceName}</strong> беше възстановена.</p>
+        <p>Сума: <strong>${(amount / 100).toFixed(
+          2
+        )} ${currency.toUpperCase()}</strong></p>
+        <p>Моля, имайте предвид, че банковото Ви извлечение може да отнеме няколко дни, за да отрази промяната.</p>
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          С уважение,<br/>
+          Екипът на ${businessName}
+        </p>
+      </div>
+    `,
+  };
+
+  sendInBackground(
+    mailOptions,
+    `Payment refunded email sent to ${to}`,
+    `Failed to send payment refunded email to ${to}:`
+  );
+};

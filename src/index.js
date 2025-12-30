@@ -14,6 +14,8 @@ import staffScheduleRoutes from "./routes/staff-shedule.routes.js";
 import alertRoutes from "./routes/alert.routes.js";
 import chatbotRoutes from "./routes/chatbot.routes.js";
 import stripeRoutes from "./routes/stripe.routes.js";
+import stripeConnectRoutes from "./routes/stripeConnect.routes.js";
+import stripeConnectWebhookRoutes from "./routes/stripeConnectWebhook.routes.js";
 import webhookRoutes from "./routes/webhook.routes.js";
 import kanbanRoutes from "./routes/kanban.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
@@ -62,6 +64,12 @@ app.use(
   express.raw({ type: "application/json" }),
   webhookRoutes
 );
+// Stripe Connect webhook с raw body ПРЕДИ express.json()
+app.use(
+  "/api/stripe/connect/webhook",
+  express.raw({ type: "application/json" }),
+  stripeConnectWebhookRoutes
+);
 app.use(express.json());
 
 app.get("/", (req, res) => {
@@ -79,6 +87,7 @@ app.use("/api/staff-schedules", staffScheduleRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/chatbot", chatbotRoutes);
 app.use("/api/stripe", stripeRoutes);
+app.use("/api/stripe", stripeConnectRoutes); // Stripe Connect endpoints
 app.use("/api/kanban", kanbanRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/dashboard", dashboardRoutes);

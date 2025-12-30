@@ -8,9 +8,12 @@ import {
   sendAppointmentConfirmationToNewUser,
   sendAppointmentConfirmationToExistingUser,
   sendAppointmentCancelledEmail,
+  sendPaymentCapturedEmail,
+  sendPaymentRefundedEmail,
 } from "../utils/EmailService.js";
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
 import moment from "moment-timezone";
+import { requireStripe } from "../config/stripe.js";
 
 // Set the timezone for the application (Bulgaria)
 const APP_TIMEZONE = "Europe/Sofia";
@@ -74,6 +77,10 @@ export const getDashboardData = async (req, res) => {
         staff: {
           _id: appointment.staff,
         },
+        paymentStatus: appointment.paymentStatus,
+        stripePaymentIntentId: appointment.stripePaymentIntentId,
+        stripePaymentMethodId: appointment.stripePaymentMethodId,
+        stripePaymentAmount: appointment.stripePaymentAmount,
       };
     });
     transformedAppointments.sort((a, b) => {
@@ -283,6 +290,68 @@ export const updateAppointmentStatus = async (req, res, next) => {
     }
 
     appt.status = status;
+    // Stripe capture/refund logic
+    const stripe = requireStripe();
+    if (stripe && appt.stripePaymentIntentId) {
+      if (status === "confirmed") {
+        // Capture authorized funds when appointment is approved
+        if (
+          appt.paymentStatus === "authorized" ||
+          appt.paymentStatus === "pending"
+        ) {
+          const pi = await stripe.paymentIntents.capture(
+            appt.stripePaymentIntentId,
+            {},
+            { stripeAccount: appt.business.stripeConnectAccountId }
+          );
+          appt.paymentStatus = "captured";
+          appt.stripePaymentMethodId = pi.payment_method;
+          appt.stripePaymentAmount = pi.amount_received;
+          // Notify client payment captured
+          if (appt.email) {
+            await sendPaymentCapturedEmail(
+              appt.email,
+              appt.clientName,
+              appt.service.name,
+              appt.business.businessName,
+              pi.amount_received,
+              pi.currency || "bgn"
+            );
+          }
+        }
+      } else if (status === "cancelled") {
+        if (appt.paymentStatus === "authorized") {
+          // Void the authorization to release held funds
+          await stripe.paymentIntents.cancel(
+            appt.stripePaymentIntentId,
+            {},
+            { stripeAccount: appt.business.stripeConnectAccountId }
+          );
+          appt.paymentStatus = "cancelled";
+        } else if (appt.paymentStatus === "captured") {
+          // Refund captured funds
+          const refund = await stripe.refunds.create(
+            { payment_intent: appt.stripePaymentIntentId },
+            { stripeAccount: appt.business.stripeConnectAccountId }
+          );
+          appt.paymentStatus = "refunded";
+          // Notify client refund issued
+          if (appt.email) {
+            await sendPaymentRefundedEmail(
+              appt.email,
+              appt.clientName,
+              appt.service.name,
+              appt.business.businessName,
+              refund.amount ||
+                appt.stripePaymentAmount ||
+                Math.round(appt.service.price * 100),
+              refund.currency || "bgn"
+            );
+          }
+        }
+      }
+    }
+
     await appt.save();
 
     if (status === "confirmed" && appt.email) {
@@ -472,7 +541,7 @@ export const getFreeSlots = async (req, res, next) => {
 
 export const getClosestAvailableSlot = async (req, res, next) => {
   try {
-    const { staffId, serviceId } = req.query;
+    const { staffId, serviceId, date } = req.query;
     if (!staffId || !serviceId) {
       return res.status(400).json({ message: "Missing required parameters." });
     }
@@ -502,10 +571,19 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     let foundDateObject = null; // Ще съхранява moment обект
     const now = moment.tz(APP_TIMEZONE); // Get current Sofia time once
 
+    // Optional: start search from provided date instead of today
+    // Accept formats: YYYY-MM-DD, DD.MM.YYYY
+    const startFromMoment = date
+      ? moment.tz(
+          moment(date, ["YYYY-MM-DD", "DD.MM.YYYY"]).format("YYYY-MM-DD"),
+          APP_TIMEZONE
+        )
+      : moment.tz(APP_TIMEZONE).startOf("day");
+
     for (let i = 0; i < daysToSearch; i++) {
       // Always start from midnight in the app timezone to avoid drift across environments
-      const searchDateMoment = moment
-        .tz(APP_TIMEZONE)
+      const searchDateMoment = startFromMoment
+        .clone()
         .startOf("day")
         .add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
@@ -525,7 +603,7 @@ export const getClosestAvailableSlot = async (req, res, next) => {
 
       // Filter today's slots to only future times (in Sofia timezone)
       const availableToday =
-        i === 0
+        i === 0 && !date
           ? slots.filter((slot) => {
               // Critical: construct full datetime in Sofia timezone for accurate comparison
               const slotDateTime = moment.tz(
