@@ -5,11 +5,15 @@ export const getAlerts = async (req, res, next) => {
     const alerts = await Alert.find({ staff: req.user.id })
       .populate({
         path: "appointment",
+        match: { status: "pending" },
         populate: { path: "service", select: "name" },
       })
       .sort({ createdAt: -1 });
 
-    res.status(200).json(alerts);
+    // Filter out alerts where the appointment was not found (due to status mismatch)
+    const filteredAlerts = alerts.filter((alert) => alert.appointment !== null);
+
+    res.status(200).json(filteredAlerts);
   } catch (error) {
     next(error);
   }

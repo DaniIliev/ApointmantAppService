@@ -3,11 +3,31 @@ import moment from "moment";
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
+  pool: true,
+  maxConnections: 2,
+  maxMessages: 20,
+  connectionTimeout: 10000, // fail fast if SMTP blocked in env
+  greetingTimeout: 10000,
+  socketTimeout: 10000,
   auth: {
     user: "appointmentappdi@gmail.com", // Твоят имейл адрес
     pass: "gmaa swqn jvqh dudf", // Парола на приложението, генерирана от Google
   },
 });
+
+// Send emails in background so API responses aren't blocked by SMTP
+const sendInBackground = (mailOptions, successMsg, errorPrefix) => {
+  setImmediate(() => {
+    transporter
+      .sendMail(mailOptions)
+      .then(() => {
+        console.log(successMsg);
+      })
+      .catch((error) => {
+        console.error(errorPrefix, error);
+      });
+  });
+};
 
 export const sendConfirmationEmail = async (
   to,
@@ -15,38 +35,88 @@ export const sendConfirmationEmail = async (
   serviceName,
   startTime,
   endTime,
-  businessName
+  businessName,
+  dashboardLink,
+  tempPassword = null,
+  appointmentId = null
 ) => {
   const formattedStartTime = moment(startTime).format("HH:mm");
   const formattedEndTime = moment(endTime).format("HH:mm");
   const formattedDate = moment(startTime).format("DD.MM.YYYY");
+  const cancelLink = appointmentId
+    ? `${dashboardLink}/appointments/${appointmentId}/cancel`
+    : null;
+
+  let html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+      <h2>Здравейте, ${clientName}!</h2>
+      <p>Вашият час е успешно потвърден с <strong>${businessName}</strong>.</p>
+      
+      <div style="background-color: #f5f5f5; padding: 15px; border-radius: 8px; margin: 15px 0;">
+        <h3>Детайли на вашия записан час:</h3>
+        <ul style="list-style: none; padding: 0;">
+          <li><strong>Услуга:</strong> ${serviceName}</li>
+          <li><strong>Дата:</strong> ${formattedDate}</li>
+          <li><strong>Време:</strong> ${formattedStartTime} - ${formattedEndTime}</li>
+          <li><strong>Бизнес:</strong> ${businessName}</li>
+        </ul>
+      </div>
+  `;
+
+  // If tempPassword is provided, show login credentials (new user)
+  if (tempPassword) {
+    html += `
+      <div style="background-color: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0;">
+        <h3>Ваши данни за вход:</h3>
+        <ul style="list-style: none; padding: 0;">
+          <li><strong>Имейл:</strong> ${to}</li>
+          <li><strong>Временна парола:</strong> <code style="background-color: #fff; padding: 5px 10px; border-radius: 4px; font-family: monospace;">${tempPassword}</code></li>
+        </ul>
+        <p style="font-size: 12px; color: #666;">Моля, сменете паролата при първа възможност след влизане.</p>
+      </div>
+    `;
+  }
+
+  html += `
+      <p>
+        <a href="${dashboardLink}" style="background-color: #3b61c0; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+          Вижте вашия профил
+        </a>
+      </p>
+  `;
+
+  // Add cancel button if appointmentId is provided
+  if (cancelLink) {
+    html += `
+      <p>
+        <a href="${cancelLink}" style="background-color: #d32f2f; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+          Отказ от час
+        </a>
+      </p>
+    `;
+  }
+
+  html += `
+      <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+        Очакваме Ви!<br/>
+        С уважение,<br/>
+        Екипът на ${businessName}
+      </p>
+    </div>
+  `;
 
   const mailOptions = {
-    from: '"Your Business Name" <вашият-имейл@gmail.com>',
+    from: "appointmentappdi@gmail.com",
     to: to,
     subject: `Потвърждение на записан час: ${serviceName} с ${businessName}`,
-    html: `
-            <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-                <h2>Здравейте, ${clientName}!</h2>
-                <p>Вашият час за услугата <strong>${serviceName}</strong> с <strong>${businessName}</strong> е успешно потвърден.</p>
-                <p><strong>Детайли на срещата:</strong></p>
-                <ul>
-                    <li><strong>Дата:</strong> ${formattedDate}</li>
-                    <li><strong>Време:</strong> ${formattedStartTime} - ${formattedEndTime}</li>
-                    <li><strong>Услуга:</strong> ${serviceName}</li>
-                </ul>
-                <p>Очакваме Ви!</p>
-                <p>С уважение,<br/>Екипът на ${businessName}</p>
-            </div>
-        `,
+    html: html,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log("Confirmation email sent successfully.");
-  } catch (error) {
-    console.error("Failed to send confirmation email:", error);
-  }
+  sendInBackground(
+    mailOptions,
+    "Confirmation email sent successfully.",
+    "Failed to send confirmation email:"
+  );
 };
 
 export const inviteStaffEmail = async (
@@ -73,12 +143,11 @@ export const inviteStaffEmail = async (
       `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log("Confirmation email sent successfully.");
-  } catch (error) {
-    console.error("Failed to send confirmation email:", error);
-  }
+  sendInBackground(
+    mailOptions,
+    "Invitation email sent successfully.",
+    "Failed to send invitation email:"
+  );
 };
 
 export const sendPlanExpirationWarning = async (
@@ -107,12 +176,11 @@ export const sendPlanExpirationWarning = async (
       `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Expiration warning email sent to ${to}`);
-  } catch (error) {
-    console.error(`Failed to send expiration warning email to ${to}:`, error);
-  }
+  sendInBackground(
+    mailOptions,
+    `Expiration warning email sent to ${to}`,
+    `Failed to send expiration warning email to ${to}:`
+  );
 };
 
 export const sendForgotPasswordOtpEmail = async (email, firstName, otp) => {
@@ -131,15 +199,11 @@ export const sendForgotPasswordOtpEmail = async (email, firstName, otp) => {
     `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Forgot password OTP email sent to ${email}`);
-  } catch (error) {
-    console.error(
-      `Failed to send forgot password OTP email to ${email}:`,
-      error
-    );
-  }
+  sendInBackground(
+    mailOptions,
+    `Forgot password OTP email sent to ${email}`,
+    `Failed to send forgot password OTP email to ${email}:`
+  );
 };
 export const sendEmailChangeNotification = async (
   oldEmail,
@@ -186,12 +250,306 @@ export const sendEmailChangeNotification = async (
   };
 
   try {
-    await transporter.sendMail(newEmailOptions);
-    await transporter.sendMail(oldEmailOptions);
-    console.log(
-      `Email change notifications sent to ${oldEmail} and ${newEmail}`
+    // Fire both in background
+    sendInBackground(
+      newEmailOptions,
+      `Email change notification sent to ${newEmail}`,
+      `Failed to send email change notification to ${newEmail}:`
+    );
+    sendInBackground(
+      oldEmailOptions,
+      `Email change notification sent to ${oldEmail}`,
+      `Failed to send email change notification to ${oldEmail}:`
     );
   } catch (error) {
     console.error("Failed to send email change notifications:", error);
   }
+};
+
+export const sendAppointmentConfirmationToNewUser = async (
+  to,
+  clientName,
+  email,
+  tempPassword,
+  serviceName,
+  startTime,
+  endTime,
+  businessName,
+  dashboardLink
+) => {
+  const formattedStartTime = moment(startTime).format("HH:mm");
+  const formattedEndTime = moment(endTime).format("HH:mm");
+  const formattedDate = moment(startTime).format("DD.MM.YYYY");
+
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to: to,
+    subject: `Ваш записан час с ${businessName} - Данни за вход`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2>Здравейте, ${clientName}!</h2>
+        <p>Вашият час е успешно записан с <strong>${businessName}</strong>.</p>
+        
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 8px; margin: 15px 0;">
+          <h3>Детайли на вашия записан час:</h3>
+          <ul style="list-style: none; padding: 0;">
+            <li><strong>Услуга:</strong> ${serviceName}</li>
+            <li><strong>Дата:</strong> ${formattedDate}</li>
+            <li><strong>Време:</strong> ${formattedStartTime} - ${formattedEndTime}</li>
+            <li><strong>Бизнес:</strong> ${businessName}</li>
+          </ul>
+        </div>
+
+        <div style="background-color: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0;">
+          <h3>Ваши данни за вход:</h3>
+          <ul style="list-style: none; padding: 0;">
+            <li><strong>Имейл:</strong> ${email}</li>
+            <li><strong>Временна парола:</strong> <code style="background-color: #fff; padding: 5px 10px; border-radius: 4px; font-family: monospace;">${tempPassword}</code></li>
+          </ul>
+          <p style="font-size: 12px; color: #666;">Моля, сменете паролата при първа възможност след влизане.</p>
+        </div>
+
+        <p>
+          <a href="${dashboardLink}" style="background-color: #3b61c0; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+            Влезте в моя профил
+          </a>
+        </p>
+
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          Очакваме Ви!<br/>
+          С уважение,<br/>
+          Екипът на ${businessName}
+        </p>
+      </div>
+    `,
+  };
+
+  sendInBackground(
+    mailOptions,
+    `Appointment confirmation email sent to ${to} (new user)`,
+    `Failed to send appointment confirmation email to ${to}:`
+  );
+};
+
+export const sendAppointmentConfirmationToExistingUser = async (
+  to,
+  clientName,
+  serviceName,
+  startTime,
+  endTime,
+  businessName,
+  dashboardLink,
+  appointmentId
+) => {
+  const formattedStartTime = moment(startTime).format("HH:mm");
+  const formattedEndTime = moment(endTime).format("HH:mm");
+  const formattedDate = moment(startTime).format("DD.MM.YYYY");
+  const cancelLink = `${dashboardLink}/appointments/${appointmentId}/cancel`;
+
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to: to,
+    subject: `Ваш записан час с ${businessName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2>Здравейте, ${clientName}!</h2>
+        <p>Вашият час е успешно записан с <strong>${businessName}</strong>.</p>
+        
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 8px; margin: 15px 0;">
+          <h3>Детайли на вашия записан час:</h3>
+          <ul style="list-style: none; padding: 0;">
+            <li><strong>Услуга:</strong> ${serviceName}</li>
+            <li><strong>Дата:</strong> ${formattedDate}</li>
+            <li><strong>Време:</strong> ${formattedStartTime} - ${formattedEndTime}</li>
+            <li><strong>Бизнес:</strong> ${businessName}</li>
+          </ul>
+        </div>
+
+        <p>
+          <a href="${dashboardLink}" style="background-color: #3b61c0; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+            Вижте вашия профил
+          </a>
+        </p>
+
+        <p>
+          <a href="${cancelLink}" style="background-color: #d32f2f; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+            Отказ от час
+          </a>
+        </p>
+
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          Очакваме Ви!<br/>
+          С уважение,<br/>
+          Екипът на ${businessName}
+        </p>
+      </div>
+    `,
+  };
+
+  sendInBackground(
+    mailOptions,
+    `Appointment confirmation email sent to ${to} (existing user)`,
+    `Failed to send appointment confirmation email to ${to}:`
+  );
+};
+
+export const sendAppointmentCancelledEmail = async (
+  to,
+  clientName,
+  serviceName,
+  startTime,
+  endTime,
+  businessName,
+  dashboardLink
+) => {
+  const formattedStartTime = moment(startTime).format("HH:mm");
+  const formattedEndTime = moment(endTime).format("HH:mm");
+  const formattedDate = moment(startTime).format("DD.MM.YYYY");
+
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to: to,
+    subject: `Отказ от час - ${businessName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2>Здравейте, ${clientName}!</h2>
+        <p>Вашият час е отменен.</p>
+        
+        <div style="background-color: #fff3cd; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #ffc107;">
+          <h3>Отменен час:</h3>
+          <ul style="list-style: none; padding: 0;">
+            <li><strong>Услуга:</strong> ${serviceName}</li>
+            <li><strong>Дата:</strong> ${formattedDate}</li>
+            <li><strong>Време:</strong> ${formattedStartTime} - ${formattedEndTime}</li>
+            <li><strong>Бизнес:</strong> ${businessName}</li>
+          </ul>
+        </div>
+
+        <p>Ако желаете да запишете нов час, моля посетете нашия портал.</p>
+
+        <p>
+          <a href="${dashboardLink}" style="background-color: #3b61c0; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+            Запишете нов час
+          </a>
+        </p>
+
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          Благодарим Ви!<br/>
+          С уважение,<br/>
+          Екипът на ${businessName}
+        </p>
+      </div>
+    `,
+  };
+
+  sendInBackground(
+    mailOptions,
+    `Appointment cancellation confirmation email sent to ${to}`,
+    `Failed to send appointment cancellation email to ${to}:`
+  );
+};
+
+export const sendPaymentAuthorizationEmail = async (
+  to,
+  clientName,
+  serviceName,
+  businessName,
+  amount,
+  currency
+) => {
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to,
+    subject: `Плащане – сума е блокирана за ${serviceName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2>Здравейте, ${clientName}!</h2>
+        <p>Беше извършена предварителна авторизация на сумата за услугата <strong>${serviceName}</strong>.</p>
+        <p>Сумата <strong>${(amount / 100).toFixed(
+          2
+        )} ${currency.toUpperCase()}</strong> е временно блокирана по вашата карта.</p>
+        <p>След като служителят одобри часа, сумата ще бъде изтеглена. Ако заявката бъде отказана, блокираният лимит ще бъде освободен автоматично.</p>
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          С уважение,<br/>
+          Екипът на ${businessName}
+        </p>
+      </div>
+    `,
+  };
+
+  sendInBackground(
+    mailOptions,
+    `Payment authorization email sent to ${to}`,
+    `Failed to send payment authorization email to ${to}:`
+  );
+};
+
+export const sendPaymentCapturedEmail = async (
+  to,
+  clientName,
+  serviceName,
+  businessName,
+  amount,
+  currency
+) => {
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to,
+    subject: `Плащане успешно – ${serviceName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2>Здравейте, ${clientName}!</h2>
+        <p>Плащането за услугата <strong>${serviceName}</strong> беше успешно обработено.</p>
+        <p>Сума: <strong>${(amount / 100).toFixed(
+          2
+        )} ${currency.toUpperCase()}</strong></p>
+        <p>Благодарим Ви за доверието!</p>
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          С уважение,<br/>
+          Екипът на ${businessName}
+        </p>
+      </div>
+    `,
+  };
+
+  sendInBackground(
+    mailOptions,
+    `Payment captured email sent to ${to}`,
+    `Failed to send payment captured email to ${to}:`
+  );
+};
+
+export const sendPaymentRefundedEmail = async (
+  to,
+  clientName,
+  serviceName,
+  businessName,
+  amount,
+  currency
+) => {
+  const mailOptions = {
+    from: "appointmentappdi@gmail.com",
+    to,
+    subject: `Възстановяване на сума – ${serviceName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2>Здравейте, ${clientName}!</h2>
+        <p>Сумата за услугата <strong>${serviceName}</strong> беше възстановена.</p>
+        <p>Сума: <strong>${(amount / 100).toFixed(
+          2
+        )} ${currency.toUpperCase()}</strong></p>
+        <p>Моля, имайте предвид, че банковото Ви извлечение може да отнеме няколко дни, за да отрази промяната.</p>
+        <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
+          С уважение,<br/>
+          Екипът на ${businessName}
+        </p>
+      </div>
+    `,
+  };
+
+  sendInBackground(
+    mailOptions,
+    `Payment refunded email sent to ${to}`,
+    `Failed to send payment refunded email to ${to}:`
+  );
 };

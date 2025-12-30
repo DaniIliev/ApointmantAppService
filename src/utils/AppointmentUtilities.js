@@ -1,6 +1,9 @@
 // utils/AppointmentUtilities.js
 
-import moment from "moment";
+import moment from "moment-timezone";
+
+// Set the timezone for the application (Bulgaria)
+const APP_TIMEZONE = "Europe/Sofia";
 import StaffSchedule from "../models/StaffSchedule.js";
 import Appointment from "../models/Appointment.js";
 import Service from "../models/Service.js";
@@ -8,7 +11,19 @@ import DailySchedule from "../models/DailySchedule.js";
 
 export const getAvailableSlots = async (staffId, date, serviceDuration) => {
   try {
-    const requestedDate = moment.utc(date).startOf("day");
+    // Parse date strictly in app timezone; accept bare YYYY-MM-DD or ISO and anchor to the provided day.
+    const requestedDate = moment
+      .tz(date, ["YYYY-MM-DD", moment.ISO_8601], APP_TIMEZONE)
+      .startOf("day");
+
+    if (!requestedDate.isValid()) {
+      return { slots: [], message: "Невалидна дата." };
+    }
+
+    // Validate duration to avoid infinite loops / timeouts
+    if (!Number.isFinite(serviceDuration) || serviceDuration <= 0) {
+      return { slots: [], message: "Невалидна продължителност на услугата." };
+    }
 
     // Първо, намираме StaffSchedule за служителя
     const staffSchedule = await StaffSchedule.findOne({ staff: staffId });
@@ -23,22 +38,21 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     // const dailySchedule = await DailySchedule.findOne({
     //   "workHours.date": requestedDate.toDate(),
     // });
-    const startOfDay = requestedDate.clone().utc().startOf("day").toDate();
-    const endOfDay = requestedDate.clone().utc().endOf("day").toDate();
+    const startOfDay = requestedDate.clone().startOf("day").toDate();
+    const endOfDay = requestedDate.clone().endOf("day").toDate();
 
     const dailySchedule = await DailySchedule.findOne({
       "workHours.date": { $gte: startOfDay, $lte: endOfDay },
     });
-    console.log("dailySchedule", dailySchedule);
 
     if (!dailySchedule) {
       return { slots: [], message: "Няма работен график за избраната дата." };
     }
 
+    // Ensure dailyWorkHours date is compared in app timezone (not server/UTC time)
     const dailyWorkHours = dailySchedule.workHours.find((wh) =>
-      moment(wh.date).isSame(requestedDate, "day")
+      moment.tz(wh.date, APP_TIMEZONE).isSame(requestedDate, "day")
     );
-    console.log("dailyWorkHours", dailyWorkHours);
 
     if (!dailyWorkHours || dailyWorkHours.isDayOff) {
       return { slots: [], message: "Служителят не работи на тази дата." };
@@ -47,7 +61,6 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     const staffServices = await Service.find({
       "staffs._id": staffId,
     });
-    console.log("staffServices", staffServices);
 
     if (!staffServices || staffServices.length === 0) {
       return { slots: [], message: "Служителят не предлага услуги." };
@@ -57,25 +70,35 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
       Infinity
     );
     // **ВАЖНО:** Проверяваме дали избраната услуга е най-кратката, ако не, използваме нейната продължителност за стъпката
-    const slotStep = Math.min(serviceDuration, minServiceDuration);
+    const stepCandidate = Math.min(serviceDuration, minServiceDuration);
+    const slotStep =
+      Number.isFinite(stepCandidate) && stepCandidate > 0
+        ? stepCandidate
+        : serviceDuration;
 
     const bookedAppointments = await Appointment.find({
       staff: staffId,
       "appointmentTime.start": {
-        $gte: requestedDate.toDate(),
-        $lt: moment(requestedDate).add(1, "day").toDate(),
+        $gte: startOfDay,
+        $lt: endOfDay,
       },
+      status: { $ne: "cancelled" }, // Exclude cancelled appointments
     }).sort({ "appointmentTime.start": 1 });
 
-    const workStart = moment(
-      `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${
-        dailyWorkHours.workTime.start
-      }`
+    console.log("Booked Appointments:", bookedAppointments);
+    // Parse times in app timezone to ensure consistency; use fixed date in Sofia time
+    const baseDate = moment
+      .tz(dailyWorkHours.date, APP_TIMEZONE)
+      .format("YYYY-MM-DD");
+    const workStart = moment.tz(
+      `${baseDate}T${dailyWorkHours.workTime.start}`,
+      "YYYY-MM-DDTHH:mm",
+      APP_TIMEZONE
     );
-    const workEnd = moment(
-      `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${
-        dailyWorkHours.workTime.end
-      }`
+    const workEnd = moment.tz(
+      `${baseDate}T${dailyWorkHours.workTime.end}`,
+      "YYYY-MM-DDTHH:mm",
+      APP_TIMEZONE
     );
 
     let availableSlots = [];
@@ -86,23 +109,26 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     const busyIntervals = [];
 
     // Добавяме запазените часове
+    // IMPORTANT: Convert DB dates (UTC) to app timezone
     for (const appt of bookedAppointments) {
       busyIntervals.push({
-        start: moment(appt.appointmentTime.start),
-        end: moment(appt.appointmentTime.end),
+        start: moment(appt.appointmentTime.start).tz(APP_TIMEZONE),
+        end: moment(appt.appointmentTime.end).tz(APP_TIMEZONE),
       });
     }
 
-    // Добавяме почивките
+    // Добавяме почивките (use baseDate to avoid timezone drift)
     for (const breakTime of dailyWorkHours.breaks) {
       busyIntervals.push({
-        start: moment(
-          `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${
-            breakTime.start
-          }`
+        start: moment.tz(
+          `${baseDate}T${breakTime.start}`,
+          "YYYY-MM-DDTHH:mm",
+          APP_TIMEZONE
         ),
-        end: moment(
-          `${moment(dailyWorkHours.date).format("YYYY-MM-DD")}T${breakTime.end}`
+        end: moment.tz(
+          `${baseDate}T${breakTime.end}`,
+          "YYYY-MM-DDTHH:mm",
+          APP_TIMEZONE
         ),
       });
     }
@@ -134,7 +160,6 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
     // Генерираме свободните часове на базата на обединените интервали
     let freeTimeStart = moment(workStart);
     let slotEnd;
-    console.log("merged intervals", mergedIntervals);
     for (const busy of mergedIntervals) {
       if (freeTimeStart.isBefore(busy.start)) {
         // Имаме свободен интервал между freeTimeStart и busy.start

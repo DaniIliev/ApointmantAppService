@@ -102,8 +102,6 @@ export const getBusinesses = async (req, res, next) => {
 export const getBusinessById = async (req, res, next) => {
   try {
     const businessId = req.params.id;
-
-    console.log("Fetching business with ID:", businessId);
     const business = await Business.findById(businessId).lean();
 
     if (!business) {

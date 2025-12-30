@@ -19,6 +19,12 @@ const serviceSchema = new mongoose.Schema(
     price: { type: Number, required: true },
     category: { type: String, required: true },
     imageUrl: String,
+    // Payment options - как може да се плаща услугата
+    paymentOption: {
+      type: String,
+      enum: ["cash", "card", "cash_and_card"],
+      default: "cash",
+    },
   },
   { timestamps: true }
 );

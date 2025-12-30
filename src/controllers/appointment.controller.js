@@ -2,10 +2,35 @@ import Appointment from "../models/Appointment.js";
 import Business from "../models/Business.js";
 import Service from "../models/Service.js";
 import Alert from "../models/Alert.js";
-import { sendConfirmationEmail } from "../utils/EmailService.js";
+import User from "../models/User.js";
+import {
+  sendConfirmationEmail,
+  sendAppointmentConfirmationToNewUser,
+  sendAppointmentConfirmationToExistingUser,
+  sendAppointmentCancelledEmail,
+  sendPaymentCapturedEmail,
+  sendPaymentRefundedEmail,
+} from "../utils/EmailService.js";
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
-import moment from "moment";
+import moment from "moment-timezone";
+import { requireStripe } from "../config/stripe.js";
+
+// Set the timezone for the application (Bulgaria)
+const APP_TIMEZONE = "Europe/Sofia";
 import { io } from "../index.js";
+import bcrypt from "bcryptjs";
+
+// Helper function to generate a random password
+const generateTemporaryPassword = () => {
+  const length = 12;
+  const charset =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
+  let password = "";
+  for (let i = 0; i < length; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+  return password;
+};
 
 export const getDashboardData = async (req, res) => {
   try {
@@ -21,9 +46,9 @@ export const getDashboardData = async (req, res) => {
       if (!business) {
         return res.status(404).json({ message: "Business not found" });
       }
-      appointments = await Appointment.find({
-        business: business._id,
-      }).populate("service client");
+      appointments = await Appointment.find({ staff: userId }).populate(
+        "business service client"
+      );
     } else if (userRole === "staff") {
       appointments = await Appointment.find({ staff: userId }).populate(
         "business service client"
@@ -52,6 +77,10 @@ export const getDashboardData = async (req, res) => {
         staff: {
           _id: appointment.staff,
         },
+        paymentStatus: appointment.paymentStatus,
+        stripePaymentIntentId: appointment.stripePaymentIntentId,
+        stripePaymentMethodId: appointment.stripePaymentMethodId,
+        stripePaymentAmount: appointment.stripePaymentAmount,
       };
     });
     transformedAppointments.sort((a, b) => {
@@ -77,6 +106,14 @@ export const createAppointment = async (req, res, next) => {
       email,
       staff,
     } = req.body;
+
+    console.log(
+      "Creating appointment with dateTime:",
+      dateTime,
+      "- Current Sofia time:",
+      moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z")
+    );
+
     const biz = await Business.findById(business);
     if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
 
@@ -93,8 +130,16 @@ export const createAppointment = async (req, res, next) => {
       });
     }
 
-    const availability = await getAvailableSlots(staff, dateTime, srv.duration);
-    const requestedSlot = moment(dateTime).format("HH:mm");
+    // Extract date from dateTime for availability check
+    const appointmentDateOnly = moment
+      .tz(dateTime, APP_TIMEZONE)
+      .format("YYYY-MM-DD");
+    const availability = await getAvailableSlots(
+      staff,
+      appointmentDateOnly,
+      srv.duration
+    );
+    const requestedSlot = moment.tz(dateTime, APP_TIMEZONE).format("HH:mm");
     const isSlotAvailable = availability.slots.some(
       (slot) => slot.startTime === requestedSlot
     );
@@ -105,9 +150,13 @@ export const createAppointment = async (req, res, next) => {
         .json({ message: "Избраният час е зает или невалиден." });
     }
 
-    // ПРОМЯНА: Изчисляваме началния и крайния час като Date обекти
-    const startDateTime = moment(dateTime).toDate();
-    const endDateTime = moment(dateTime).add(srv.duration, "minutes").toDate();
+    // Calculate appointment time in app timezone (Sofia) - will be stored as UTC in DB
+    const startDateTime = moment.tz(dateTime, APP_TIMEZONE).toDate();
+    const endDateTime = moment
+      .tz(dateTime, APP_TIMEZONE)
+      .add(srv.duration, "minutes")
+      .toDate();
+    console.log("Appointment time (UTC):", startDateTime, "-", endDateTime);
 
     const appointment = await Appointment.create({
       business,
@@ -131,6 +180,55 @@ export const createAppointment = async (req, res, next) => {
       type: "appointment",
     });
 
+    // Check if user with this email exists
+    const existingUser = await User.findOne({ email });
+    const dashboardLink = `${process.env.CLIENT_URL}/dashboard`;
+
+    if (!existingUser) {
+      // Create new user account for the client
+      const tempPassword = generateTemporaryPassword();
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+      const newUser = await User.create({
+        email,
+        passwordHash,
+        role: "personal",
+        firstName: clientName.split(" ")[0] || clientName,
+        lastName: clientName.split(" ").slice(1).join(" ") || "",
+        phone: clientPhone,
+        mustChangePassword: true,
+      });
+
+      // Update the appointment with the new user's ID
+      appointment.client = newUser._id;
+      await appointment.save();
+
+      // Send email with new account credentials
+      await sendAppointmentConfirmationToNewUser(
+        email,
+        clientName,
+        email,
+        tempPassword,
+        srv.name,
+        startDateTime,
+        endDateTime,
+        biz.businessName,
+        dashboardLink
+      );
+    } else {
+      // Send email with appointment details and cancel link
+      await sendAppointmentConfirmationToExistingUser(
+        email,
+        clientName,
+        srv.name,
+        startDateTime,
+        endDateTime,
+        biz.businessName,
+        dashboardLink,
+        appointment._id
+      );
+    }
+    console.log("Created appointment:", appointment);
     io.to(staff).emit("newAppointment", {
       appointment: {
         _id: appointment._id,
@@ -184,8 +282,78 @@ export const updateAppointmentStatus = async (req, res, next) => {
       return res.status(403).json({ message: "Не сте собственик" });
     }
 
+    // Check if appointment is cancelled
+    if (appt.status === "cancelled") {
+      return res.status(400).json({
+        message: "Не може да се промени статусът на отменена встреча",
+      });
+    }
+
     appt.status = status;
+    // Stripe capture/refund logic
+    const stripe = requireStripe();
+    if (stripe && appt.stripePaymentIntentId) {
+      if (status === "confirmed") {
+        // Capture authorized funds when appointment is approved
+        if (
+          appt.paymentStatus === "authorized" ||
+          appt.paymentStatus === "pending"
+        ) {
+          const pi = await stripe.paymentIntents.capture(
+            appt.stripePaymentIntentId,
+            {},
+            { stripeAccount: appt.business.stripeConnectAccountId }
+          );
+          appt.paymentStatus = "captured";
+          appt.stripePaymentMethodId = pi.payment_method;
+          appt.stripePaymentAmount = pi.amount_received;
+          // Notify client payment captured
+          if (appt.email) {
+            await sendPaymentCapturedEmail(
+              appt.email,
+              appt.clientName,
+              appt.service.name,
+              appt.business.businessName,
+              pi.amount_received,
+              pi.currency || "bgn"
+            );
+          }
+        }
+      } else if (status === "cancelled") {
+        if (appt.paymentStatus === "authorized") {
+          // Void the authorization to release held funds
+          await stripe.paymentIntents.cancel(
+            appt.stripePaymentIntentId,
+            {},
+            { stripeAccount: appt.business.stripeConnectAccountId }
+          );
+          appt.paymentStatus = "cancelled";
+        } else if (appt.paymentStatus === "captured") {
+          // Refund captured funds
+          const refund = await stripe.refunds.create(
+            { payment_intent: appt.stripePaymentIntentId },
+            { stripeAccount: appt.business.stripeConnectAccountId }
+          );
+          appt.paymentStatus = "refunded";
+          // Notify client refund issued
+          if (appt.email) {
+            await sendPaymentRefundedEmail(
+              appt.email,
+              appt.clientName,
+              appt.service.name,
+              appt.business.businessName,
+              refund.amount ||
+                appt.stripePaymentAmount ||
+                Math.round(appt.service.price * 100),
+              refund.currency || "bgn"
+            );
+          }
+        }
+      }
+    }
+
     await appt.save();
+
     if (status === "confirmed" && appt.email) {
       await sendConfirmationEmail(
         appt.email,
@@ -193,9 +361,25 @@ export const updateAppointmentStatus = async (req, res, next) => {
         appt.service.name,
         appt.appointmentTime.start,
         appt.appointmentTime.end,
-        appt.business.name
+        appt.business.businessName,
+        `${process.env.CLIENT_URL}/dashboard`,
+        null,
+        appt._id
       );
     }
+
+    if (status === "cancelled" && appt.email) {
+      await sendAppointmentCancelledEmail(
+        appt.email,
+        appt.clientName,
+        appt.service.name,
+        appt.appointmentTime.start,
+        appt.appointmentTime.end,
+        appt.business.businessName,
+        `${process.env.CLIENT_URL}/dashboard`
+      );
+    }
+
     res.json(appt);
   } catch (e) {
     next(e);
@@ -327,6 +511,14 @@ export const getFreeSlots = async (req, res, next) => {
         .json({ message: "Липсват задължителни параметри." });
     }
 
+    // Availability must never be cached; edge/CDN caches can return stale slots.
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+      "Surrogate-Control": "no-store",
+    });
+
     const service = await Service.findById(serviceId);
     if (!service) {
       return res.status(404).json({ message: "Услугата не е намерена." });
@@ -349,10 +541,18 @@ export const getFreeSlots = async (req, res, next) => {
 
 export const getClosestAvailableSlot = async (req, res, next) => {
   try {
-    const { staffId, serviceId } = req.query;
+    const { staffId, serviceId, date } = req.query;
     if (!staffId || !serviceId) {
       return res.status(400).json({ message: "Missing required parameters." });
     }
+
+    // Availability must never be cached; edge caches were serving stale data.
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+      "Surrogate-Control": "no-store",
+    });
 
     const service = await Service.findById(serviceId);
     if (!service) {
@@ -360,31 +560,76 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     }
     const serviceDuration = service.duration;
 
+    // Log server timezone context for debugging
+    console.log(
+      "Current server time (Sofia):",
+      moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z")
+    );
+
     let closestSlot = null;
-    let daysToSearch = 20; // Search for the next 20 days
+    const daysToSearch = 20; // Search for the next 20 days
     let foundDateObject = null; // Ще съхранява moment обект
+    const now = moment.tz(APP_TIMEZONE); // Get current Sofia time once
+
+    // Optional: start search from provided date instead of today
+    // Accept formats: YYYY-MM-DD, DD.MM.YYYY
+    const startFromMoment = date
+      ? moment.tz(
+          moment(date, ["YYYY-MM-DD", "DD.MM.YYYY"]).format("YYYY-MM-DD"),
+          APP_TIMEZONE
+        )
+      : moment.tz(APP_TIMEZONE).startOf("day");
 
     for (let i = 0; i < daysToSearch; i++) {
-      const searchDateMoment = moment().add(i, "days");
+      // Always start from midnight in the app timezone to avoid drift across environments
+      const searchDateMoment = startFromMoment
+        .clone()
+        .startOf("day")
+        .add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
-      // console.log(staffId, searchDate, serviceDuration);
+      console.log(
+        "Searching for closest slot on:",
+        searchDate,
+        "- Staff:",
+        staffId,
+        "- Duration:",
+        serviceDuration
+      );
       const { slots } = await getAvailableSlots(
         staffId,
         searchDate,
         serviceDuration
       );
-      // console.log("slots", slots);
-      const now = moment();
+
+      // Filter today's slots to only future times (in Sofia timezone)
       const availableToday =
-        i === 0
-          ? slots.filter((slot) =>
-              moment(`${searchDate}T${slot.startTime}`).isAfter(now)
-            )
+        i === 0 && !date
+          ? slots.filter((slot) => {
+              // Critical: construct full datetime in Sofia timezone for accurate comparison
+              const slotDateTime = moment.tz(
+                `${searchDate}T${slot.startTime}`,
+                "YYYY-MM-DDTHH:mm",
+                APP_TIMEZONE
+              );
+              const isAfterNow = slotDateTime.isAfter(now);
+              console.log(
+                `Slot ${slot.startTime}: isAfter(now=${now.format(
+                  "HH:mm"
+                )}) = ${isAfterNow}`
+              );
+              return isAfterNow;
+            })
           : slots;
 
       if (availableToday.length > 0) {
         closestSlot = availableToday[0];
         foundDateObject = searchDateMoment;
+        console.log(
+          "Found closest slot:",
+          closestSlot,
+          "on",
+          foundDateObject.format("YYYY-MM-DD")
+        );
         break;
       }
     }
@@ -404,6 +649,69 @@ export const getClosestAvailableSlot = async (req, res, next) => {
         message: "No available slots found in the next 20 days.",
       });
     }
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getAppointmentById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const appointment = await Appointment.findById(id)
+      .populate("business", "businessName phone")
+      .populate("service", "name duration price")
+      .populate("staff", "firstName lastName email")
+      .populate("client", "email firstName lastName phone");
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment не е намерен" });
+    }
+
+    res.json(appointment);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteAppointment = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const appointment = await Appointment.findById(id);
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    // Check authorization - only business owner, staff assigned to appointment, or admin can delete
+    if (userRole === "business") {
+      const business = await Business.findOne({ owner: userId });
+      if (
+        !business ||
+        appointment.business.toString() !== business._id.toString()
+      ) {
+        return res
+          .status(403)
+          .json({ message: "Unauthorized to delete this appointment" });
+      }
+    } else if (userRole === "staff") {
+      if (appointment.staff.toString() !== userId) {
+        return res
+          .status(403)
+          .json({ message: "Unauthorized to delete this appointment" });
+      }
+    } else if (userRole !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "Unauthorized to delete appointments" });
+    }
+
+    await Appointment.findByIdAndDelete(id);
+
+    res.status(200).json({ message: "Appointment deleted successfully" });
   } catch (e) {
     next(e);
   }
