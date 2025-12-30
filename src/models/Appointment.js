@@ -22,13 +22,29 @@ const appointmentSchema = new mongoose.Schema(
     clientName: String,
     clientPhone: String,
     email: String,
-    // ПРОМЯНА: Сега времето на срещата е обект
     appointmentTime: { type: TimeRangeSchema, required: true },
     status: {
       type: String,
       enum: ["pending", "confirmed", "cancelled", "completed"],
       default: "pending",
     },
+    // Payment tracking (Stripe)
+    paymentStatus: {
+      type: String,
+      enum: [
+        "not_required", // cash only
+        "pending", // awaiting card checkout / authorization
+        "authorized", // card authorized, awaiting capture
+        "captured", // captured successfully
+        "refunded", // refunded after capture
+        "cancelled", // authorization voided / payment cancelled
+        "failed",
+      ],
+      default: "not_required",
+    },
+    stripePaymentIntentId: { type: String },
+    stripePaymentMethodId: { type: String },
+    stripePaymentAmount: { type: Number },
     staff: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

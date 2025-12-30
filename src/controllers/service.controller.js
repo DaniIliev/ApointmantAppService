@@ -4,8 +4,16 @@ import Business from "../models/Business.js";
 export const createService = async (req, res, next) => {
   try {
     // Извличаме полетата от тялото на заявката
-    const { name, description, duration, price, color, staffs, category } =
-      req.body;
+    const {
+      name,
+      description,
+      duration,
+      price,
+      color,
+      staffs,
+      category,
+      paymentOption,
+    } = req.body;
     const imageUrl = req.file ? req.file.path : undefined;
     let parsedStaffs = staffs;
     if (staffs && typeof staffs === "string") {
@@ -37,6 +45,7 @@ export const createService = async (req, res, next) => {
       color,
       imageUrl,
       staffs: parsedStaffs,
+      paymentOption: paymentOption || "cash",
     });
 
     res.status(201).json(service);
@@ -58,7 +67,15 @@ export const listServices = async (req, res, next) => {
 export const updateService = async (req, res, next) => {
   try {
     const { serviceId } = req.params;
-    const { name, description, duration, price, color, category } = req.body;
+    const {
+      name,
+      description,
+      duration,
+      price,
+      color,
+      category,
+      paymentOption,
+    } = req.body;
     const imageUrl = req.file?.path;
     const serviceToUpdate = await Service.findById(serviceId);
     if (!serviceToUpdate) {
@@ -82,6 +99,8 @@ export const updateService = async (req, res, next) => {
     serviceToUpdate.price = price || serviceToUpdate.price;
     serviceToUpdate.color = color || serviceToUpdate.color;
     serviceToUpdate.category = category || serviceToUpdate.category;
+    serviceToUpdate.paymentOption =
+      paymentOption || serviceToUpdate.paymentOption;
 
     if (imageUrl) {
       serviceToUpdate.imageUrl = imageUrl;
