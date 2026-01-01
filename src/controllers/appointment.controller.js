@@ -315,7 +315,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
               appt.service.name,
               appt.business.businessName,
               pi.amount_received,
-              pi.currency || "bgn"
+              pi.currency || "eur"
             );
           }
         }
@@ -345,7 +345,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
               refund.amount ||
                 appt.stripePaymentAmount ||
                 Math.round(appt.service.price * 100),
-              refund.currency || "bgn"
+              refund.currency || "eur"
             );
           }
         }

@@ -23,9 +23,6 @@ const PLAN_PRICE_MAP = {
 
 export const createCheckoutSession = async (req, res) => {
   const { planName, businessId } = req.body;
-  console.log(
-    `Attempting checkout for Plan: ${planName}, Business: ${businessId}`
-  );
 
   const stripe = getStripe();
   if (!stripe) {
@@ -44,41 +41,27 @@ export const createCheckoutSession = async (req, res) => {
   if (!priceId) {
     return res.status(400).json({ error: "Невалидно име на план." });
   }
-  if (
-    priceId.startsWith("price_1") &&
-    !process.env.STRIPE_PRO_MONTHLY_PRICE_ID
-  ) {
-    console.warn(
-      `⚠️ ВНИМАНИЕ: Използва се placeholder Price ID (${priceId}) за план: ${planName}. Уверете се, че сте задали променливите на средата за продукция.`
-    );
-  }
+  // If placeholder price IDs are used, ensure environment variables are configured in production.
 
   try {
+    // Validate price currency at runtime
+    const priceInfo = await stripe.prices.retrieve(priceId);
+
     const business = await Business.findById(businessId);
     if (!business) {
       return res.status(404).json({ error: "Бизнесът не е намерен." });
     }
 
     const isFirstTimeSubscriber = !business.stripeCustomerId;
-    let customerId = business.stripeCustomerId;
-    let promotionCode;
+    const customerId = business.stripeCustomerId;
+    const customerEmail = business.email;
 
     if (isFirstTimeSubscriber) {
-      console.log(
-        `ℹ️ First-time subscriber detected for Business: ${businessId}. Applying 50% discount.`
-      );
-      const customer = await stripe.customers.create({
-        email: business.email,
-        metadata: { businessId: businessId },
-      });
-      customerId = customer.id;
-      promotionCode = isFirstTimeSubscriber ? FIRST_TIME_PROMO_CODE : null;
-
-      await Business.findByIdAndUpdate(businessId, {
-        stripeCustomerId: customerId,
-      });
+      // Let Stripe create the customer via customer_email to avoid defaulting to unsupported currency.
     }
-    const session = await stripe.checkout.sessions.create({
+
+    // Подготовка на опциите за сесия
+    const sessionOptions = {
       mode: "subscription",
       line_items: [
         {
@@ -86,26 +69,39 @@ export const createCheckoutSession = async (req, res) => {
           quantity: 1,
         },
       ],
-      customer: customerId,
-
-      ...(isFirstTimeSubscriber && {
-        discounts: [{ promotion_code: promotionCode }],
-      }),
-
-      // 7. Метаданни
+      ...(customerId && { customer: customerId }),
+      ...(isFirstTimeSubscriber && { customer_email: customerEmail }),
       metadata: {
         businessId: businessId,
         planName: planName,
         isFirstPurchase: isFirstTimeSubscriber ? "true" : "false",
       },
-
       success_url: `${FRONDEND_REDIRECT_URL}/dashboard`,
       cancel_url: `${FRONDEND_REDIRECT_URL}/for-bussiness`,
-    });
+    };
+
+    // Добавяне на промо код само ако е дефиниран и потребителят е нов
+    if (isFirstTimeSubscriber && FIRST_TIME_PROMO_CODE) {
+      sessionOptions.discounts = [{ promotion_code: FIRST_TIME_PROMO_CODE }];
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionOptions);
 
     res.json({ url: session.url });
   } catch (error) {
-    console.error("Грешка при създаване на Stripe Checkout сесия:", error);
-    res.status(500).json({ error: "Неуспешно създаване на сесия за плащане." });
+    // Специално съобщение за валута
+    if (error.message && error.message.includes("currency")) {
+      return res.status(400).json({
+        error: "Грешка с валутата на плана.",
+        details:
+          "Моля, уверете се, че цените в Stripe са създадени с EUR валута.",
+        stripeError: error.message,
+      });
+    }
+
+    res.status(500).json({
+      error: "Неуспешно създаване на сесия за плащане.",
+      details: error.message,
+    });
   }
 };

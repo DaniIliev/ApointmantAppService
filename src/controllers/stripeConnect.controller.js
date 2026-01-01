@@ -344,7 +344,7 @@ async function handlePaymentSucceeded(paymentIntent) {
           appt.service?.name || "Услуга",
           appt.business?.businessName || "Вашият бизнес",
           paymentIntent.amount_received,
-          paymentIntent.currency || "bgn"
+          paymentIntent.currency || "eur"
         );
       }
       return;
@@ -392,7 +392,7 @@ async function handlePaymentAuthorized(paymentIntent) {
         appt.service?.name || "Услуга",
         appt.business?.businessName || "Вашият бизнес",
         paymentIntent.amount,
-        paymentIntent.currency || "bgn"
+        paymentIntent.currency || "eur"
       );
     }
   } catch (error) {
@@ -476,7 +476,7 @@ async function handleCheckoutCompleted(session) {
         service?.name || "Услуга",
         business?.businessName || "Вашият бизнес",
         paymentIntent.amount,
-        paymentIntent.currency || "bgn"
+        paymentIntent.currency || "eur"
       );
     }
 
