@@ -2,7 +2,8 @@ import { getStripe, requireStripe } from "../config/stripe.js";
 import Business from "../models/Business.js";
 
 const FIRST_TIME_PROMO_CODE = process.env.STRIPE_FIRST_TIME_PROMO_CODE;
-const FRONDEND_REDIRECT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+const FRONDEND_REDIRECT_URL =
+  process.env.CLIENT_URL || "http://localhost:3000" || process.env.STAGING;
 
 const PLAN_PRICE_MAP = {
   Starter_Monthly:
