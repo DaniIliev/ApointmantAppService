@@ -15,7 +15,7 @@ export const handleStripeWebhook = async (req, res) => {
 
   const stripe = getStripe();
   if (!stripe) {
-    console.log("Stripe not configured: missing STRIPE_SECRET_KEY");
+    console.log("❌ [SUBSCRIPTION WEBHOOK] Stripe not configured: missing STRIPE_SECRET_KEY");
     return res
       .status(500)
       .send("Stripe not configured: missing STRIPE_SECRET_KEY");
@@ -23,7 +23,9 @@ export const handleStripeWebhook = async (req, res) => {
 
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    console.log(`✅ [SUBSCRIPTION WEBHOOK] Event verified: ${event.type}`);
   } catch (err) {
+    console.error(`❌ [SUBSCRIPTION WEBHOOK] Signature verification failed: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -31,10 +33,12 @@ export const handleStripeWebhook = async (req, res) => {
   const eventType = event.type;
 
   try {
+    console.log(`📋 [SUBSCRIPTION WEBHOOK] Processing event type: ${eventType}`);
     switch (eventType) {
       case "checkout.session.completed":
         const session = data;
         const businessId = session.metadata?.businessId;
+        console.log(`🛒 [SUBSCRIPTION] Checkout completed for business: ${businessId}`);
 
         if (
           session.payment_status === "paid" &&

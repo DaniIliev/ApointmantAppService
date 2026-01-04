@@ -240,15 +240,15 @@ export const createDashboardLink = async (req, res, next) => {
 };
 
 /**
- * v2 Webhook handler за Stripe Connect events
- * Обработва v2.core събития като account.updated, payment_intent.succeeded и т.н.
+ * Webhook handler за Stripe Connect events
+ * Обработва v1 събития като account.updated, payment_intent.succeeded и т.н.
  */
 export const handleConnectWebhook = async (req, res, next) => {
   try {
     const stripe = requireStripe();
     const sig = req.headers["stripe-signature"];
     const webhookSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
-    console.log("Handling Stripe Connect v2 webhook event");
+    console.log("🔔 [CONNECT WEBHOOK] Handling Stripe Connect webhook event");
     if (!webhookSecret) {
       console.error("Stripe Connect webhook secret not configured");
       return res.status(400).send("Webhook secret not configured");
@@ -258,51 +258,54 @@ export const handleConnectWebhook = async (req, res, next) => {
 
     try {
       event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      console.log(`✅ [CONNECT WEBHOOK] Event verified: ${event.type}`);
     } catch (err) {
       console.error("Webhook signature verification failed:", err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // v2 събитията имат префикс "v2.core."
+    // v1 събитията (БЕЗ префикс "v2.core.")
+    console.log(`📋 [CONNECT WEBHOOK] Processing event type: ${event.type}`);
     switch (event.type) {
-      case "v2.core.account.updated":
+      case "account.updated":
         const account = event.data.object;
+        console.log(`👤 [CONNECT] Account updated: ${account.id}`);
         await handleAccountUpdated(account);
         break;
 
-      case "v2.core.payment_intent.amount_capturable_updated":
+      case "payment_intent.amount_capturable_updated":
+        console.log(`💰 [CONNECT] Payment authorized`);
         await handlePaymentAuthorized(event.data.object);
         break;
 
-      case "v2.core.payment_intent.succeeded":
+      case "payment_intent.succeeded":
         const paymentIntent = event.data.object;
+        console.log(`✅ [CONNECT] Payment succeeded: ${paymentIntent.id}`);
         await handlePaymentSucceeded(paymentIntent);
         break;
 
-      case "v2.core.checkout.session.completed":
+      case "checkout.session.completed":
         const session = event.data.object;
+        console.log(`🛒 [CONNECT] Checkout completed: ${session.id}`);
         await handleCheckoutCompleted(session);
         break;
 
       // Ignored events
-      case "v2.core.account.created":
-      case "v2.core.account.closed":
-      case "v2.core.account_person.created":
-      case "v2.core.account_person.updated":
-      case "v2.core.account_person.deleted":
-      case "v2.core.charge.succeeded":
-      case "v2.core.charge.updated":
-      case "v2.core.payment_intent.created":
-        // Informational events - no action needed
+      case "account.created":
+      case "account.closed":
+      case "charge.succeeded":
+      case "charge.updated":
+      case "payment_intent.created":
+        console.log(`ℹ️ [CONNECT] Ignored event: ${event.type}`);
         break;
 
       default:
-        console.log(`Unhandled v2 event type ${event.type}`);
+        console.log(`⚠️ [CONNECT] Unhandled event type ${event.type}`);
     }
 
     res.json({ received: true });
   } catch (error) {
-    console.error("Error handling webhook:", error);
+    console.error("❌ [CONNECT] Error handling webhook:", error);
     next(error);
   }
 };
