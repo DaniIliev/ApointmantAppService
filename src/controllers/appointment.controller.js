@@ -624,12 +624,6 @@ export const getClosestAvailableSlot = async (req, res, next) => {
       if (availableToday.length > 0) {
         closestSlot = availableToday[0];
         foundDateObject = searchDateMoment;
-        console.log(
-          "Found closest slot:",
-          closestSlot,
-          "on",
-          foundDateObject.format("YYYY-MM-DD")
-        );
         break;
       }
     }
