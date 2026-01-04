@@ -15,6 +15,7 @@ export const handleStripeWebhook = async (req, res) => {
 
   const stripe = getStripe();
   if (!stripe) {
+    console.log("Stripe not configured: missing STRIPE_SECRET_KEY");
     return res
       .status(500)
       .send("Stripe not configured: missing STRIPE_SECRET_KEY");
@@ -128,9 +129,7 @@ export const handleStripeWebhook = async (req, res) => {
         console.log(`⚠️ Payment failed for customer ${data.customer}.`);
         break;
 
-      // ----------------------------------------------------
-      // ДОБАВЕНИ СЪБИТИЯ ЗА ИГНОРИРАНЕ (Без да се логва 'Unhandled')
-      // ----------------------------------------------------
+      // Ignored events
       case "product.created":
       case "price.created":
       case "charge.succeeded":
@@ -139,27 +138,16 @@ export const handleStripeWebhook = async (req, res) => {
       case "charge.updated":
       case "customer.created":
       case "customer.updated":
-      case "payment_method.attached": // 🆕 Добавено
-      case "plan.created": // 🆕 Добавено
-      case "invoice.created": // 🆕 Добавено
-      case "invoice.finalized": // 🆕 Добавено
-      case "invoice.paid": // 🆕 Добавено
-      case "invoice.payment_succeeded": // 🆕 Добавено
-        // Тези събития са информативни и не изискват действие за абонаментната логика.
-        // Просто връщаме 200 OK
-        break;
-
-      // ВАЖНО: Вече обработваме "customer.subscription.created" като част от логиката за
-      // customer.subscription.updated, затова го премахваме от default:
+      case "payment_method.attached":
+      case "plan.created":
+      case "invoice.created":
+      case "invoice.finalized":
+      case "invoice.paid":
+      case "invoice.payment_succeeded":
       case "customer.subscription.created":
-        // Това е еквивалентно на checkout.session.completed, но се случва и при API създаване.
-        // Може да се обработи тук или да се остави да се обработи от 'updated',
-        // но засега го добавяме към break, тъй като 'checkout.session.completed' е основният тригер.
         break;
-      // ----------------------------------------------------
 
       default:
-        // Запазваме default за всяко събитие, което може да не сме предвидили.
         console.log(`ℹ️ Unhandled event type: ${eventType}`);
     }
 

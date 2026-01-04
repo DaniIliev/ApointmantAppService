@@ -240,15 +240,15 @@ export const createDashboardLink = async (req, res, next) => {
 };
 
 /**
- * Webhook handler за Stripe Connect events
- * Обработва събития като account.updated, payment_intent.succeeded и т.н.
+ * v2 Webhook handler за Stripe Connect events
+ * Обработва v2.core събития като account.updated, payment_intent.succeeded и т.н.
  */
 export const handleConnectWebhook = async (req, res, next) => {
   try {
     const stripe = requireStripe();
     const sig = req.headers["stripe-signature"];
     const webhookSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
-    console.log("Handling Stripe Connect webhook event");
+    console.log("Handling Stripe Connect v2 webhook event");
     if (!webhookSecret) {
       console.error("Stripe Connect webhook secret not configured");
       return res.status(400).send("Webhook secret not configured");
@@ -263,29 +263,41 @@ export const handleConnectWebhook = async (req, res, next) => {
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Обработваме различните типове събития
+    // v2 събитията имат префикс "v2.core."
     switch (event.type) {
-      case "account.updated":
+      case "v2.core.account.updated":
         const account = event.data.object;
         await handleAccountUpdated(account);
         break;
 
-      case "payment_intent.amount_capturable_updated":
+      case "v2.core.payment_intent.amount_capturable_updated":
         await handlePaymentAuthorized(event.data.object);
         break;
 
-      case "payment_intent.succeeded":
+      case "v2.core.payment_intent.succeeded":
         const paymentIntent = event.data.object;
         await handlePaymentSucceeded(paymentIntent);
         break;
 
-      case "checkout.session.completed":
+      case "v2.core.checkout.session.completed":
         const session = event.data.object;
         await handleCheckoutCompleted(session);
         break;
 
+      // Ignored events
+      case "v2.core.account.created":
+      case "v2.core.account.closed":
+      case "v2.core.account_person.created":
+      case "v2.core.account_person.updated":
+      case "v2.core.account_person.deleted":
+      case "v2.core.charge.succeeded":
+      case "v2.core.charge.updated":
+      case "v2.core.payment_intent.created":
+        // Informational events - no action needed
+        break;
+
       default:
-        console.log(`Unhandled event type ${event.type}`);
+        console.log(`Unhandled v2 event type ${event.type}`);
     }
 
     res.json({ received: true });
