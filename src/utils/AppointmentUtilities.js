@@ -1,13 +1,60 @@
-// utils/AppointmentUtilities.js
-
 import moment from "moment-timezone";
-
-// Set the timezone for the application (Bulgaria)
 const APP_TIMEZONE = "Europe/Sofia";
 import StaffSchedule from "../models/StaffSchedule.js";
 import Appointment from "../models/Appointment.js";
 import Service from "../models/Service.js";
 import DailySchedule from "../models/DailySchedule.js";
+
+const mergeIntervals = (intervals) => {
+  if (intervals.length === 0) return [];
+  intervals.sort((a, b) => a.start.diff(b.start));
+
+  const merged = [];
+  let currentMerged = intervals[0];
+  for (let i = 1; i < intervals.length; i++) {
+    const nextInterval = intervals[i];
+    if (nextInterval.start.isSameOrBefore(currentMerged.end.clone().add(1, "minute"))) {
+      currentMerged.end = moment.max(currentMerged.end, nextInterval.end);
+    } else {
+      merged.push(currentMerged);
+      currentMerged = nextInterval;
+    }
+  }
+  merged.push(currentMerged);
+  return merged;
+};
+
+const generateSlotsFromFreeTime = (workStart, workEnd, mergedIntervals, serviceDuration, slotStep) => {
+  const availableSlots = [];
+  let freeTimeStart = moment(workStart);
+
+  // Iterate through busy intervals to find free time slots before them
+  for (const busy of mergedIntervals) {
+    if (freeTimeStart.isBefore(busy.start)) {
+      let tempTime = moment(freeTimeStart);
+      while (tempTime.isSameOrBefore(busy.start.clone().subtract(serviceDuration, "minutes"))) {
+        availableSlots.push({
+          startTime: tempTime.format("HH:mm"),
+          endTime: tempTime.clone().add(serviceDuration, "minutes").format("HH:mm"),
+        });
+        tempTime.add(slotStep, "minutes");
+      }
+    }
+    freeTimeStart = moment.max(freeTimeStart, busy.end);
+  }
+
+  // Add slots after the last busy interval until work ends
+  let tempTime = moment(freeTimeStart);
+  while (tempTime.isSameOrBefore(workEnd.clone().subtract(serviceDuration, "minutes"))) {
+    availableSlots.push({
+      startTime: tempTime.format("HH:mm"),
+      endTime: tempTime.clone().add(serviceDuration, "minutes").format("HH:mm"),
+    });
+    tempTime.add(slotStep, "minutes");
+  }
+
+  return availableSlots;
+};
 
 export const getAvailableSlots = async (staffId, date, serviceDuration) => {
   try {
@@ -33,11 +80,7 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
         message: "Няма създаден основен график за този служител.",
       };
     }
-    // След това, намираме DailySchedule, свързан с датата
-    // console.log("requestedDate", requestedDate);
-    // const dailySchedule = await DailySchedule.findOne({
-    //   "workHours.date": requestedDate.toDate(),
-    // });
+
     const startOfDay = requestedDate.clone().startOf("day").toDate();
     const endOfDay = requestedDate.clone().endOf("day").toDate();
 
@@ -84,7 +127,6 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
       },
       status: { $ne: "cancelled" }, // Exclude cancelled appointments
     }).sort({ "appointmentTime.start": 1 });
-
     // Parse times in app timezone to ensure consistency; use fixed date in Sofia time
     const baseDate = moment
       .tz(dailyWorkHours.date, APP_TIMEZONE)
@@ -132,71 +174,15 @@ export const getAvailableSlots = async (staffId, date, serviceDuration) => {
       });
     }
 
-    // Сортираме интервалите по начален час
-    busyIntervals.sort((a, b) => a.start.diff(b.start));
-
-    // Обединяваме припокриващи се или съседни интервали
-    const mergedIntervals = [];
-    if (busyIntervals.length > 0) {
-      let currentMerged = busyIntervals[0];
-      for (let i = 1; i < busyIntervals.length; i++) {
-        const nextInterval = busyIntervals[i];
-        // Проверяваме дали следващият интервал се припокрива или е съседен (в рамките на 1 минута)
-        if (
-          nextInterval.start.isSameOrBefore(
-            currentMerged.end.clone().add(1, "minute")
-          )
-        ) {
-          currentMerged.end = moment.max(currentMerged.end, nextInterval.end);
-        } else {
-          mergedIntervals.push(currentMerged);
-          currentMerged = nextInterval;
-        }
-      }
-      mergedIntervals.push(currentMerged);
-    }
-
-    // Генерираме свободните часове на базата на обединените интервали
-    let freeTimeStart = moment(workStart);
-    let slotEnd;
-    for (const busy of mergedIntervals) {
-      if (freeTimeStart.isBefore(busy.start)) {
-        // Имаме свободен интервал между freeTimeStart и busy.start
-        let tempTime = moment(freeTimeStart);
-        while (
-          tempTime.isSameOrBefore(
-            busy.start.clone().subtract(serviceDuration, "minutes")
-          )
-        ) {
-          availableSlots.push({
-            startTime: tempTime.format("HH:mm"),
-            endTime: tempTime
-              .clone()
-              .add(serviceDuration, "minutes")
-              .format("HH:mm"),
-          });
-          tempTime.add(slotStep, "minutes");
-        }
-      }
-      freeTimeStart = moment.max(freeTimeStart, busy.end);
-    }
-
-    // Добавяме свободните часове след последния зает интервал
-    let tempTime = moment(freeTimeStart);
-    while (
-      tempTime.isSameOrBefore(
-        workEnd.clone().subtract(serviceDuration, "minutes")
-      )
-    ) {
-      availableSlots.push({
-        startTime: tempTime.format("HH:mm"),
-        endTime: tempTime
-          .clone()
-          .add(serviceDuration, "minutes")
-          .format("HH:mm"),
-      });
-      tempTime.add(slotStep, "minutes");
-    }
+    const mergedIntervals = mergeIntervals(busyIntervals);
+    
+    availableSlots = generateSlotsFromFreeTime(
+      workStart, 
+      workEnd, 
+      mergedIntervals, 
+      serviceDuration, 
+      slotStep
+    );
 
     return { slots: availableSlots, message: "Намерени свободни часове." };
   } catch (error) {

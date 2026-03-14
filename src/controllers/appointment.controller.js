@@ -107,13 +107,6 @@ export const createAppointment = async (req, res, next) => {
       staff,
     } = req.body;
 
-    console.log(
-      "Creating appointment with dateTime:",
-      dateTime,
-      "- Current Sofia time:",
-      moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z")
-    );
-
     const biz = await Business.findById(business);
     if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
 
@@ -139,6 +132,7 @@ export const createAppointment = async (req, res, next) => {
       appointmentDateOnly,
       srv.duration
     );
+    console.log("Availability:", availability);
     const requestedSlot = moment.tz(dateTime, APP_TIMEZONE).format("HH:mm");
     const isSlotAvailable = availability.slots.some(
       (slot) => slot.startTime === requestedSlot
@@ -228,7 +222,6 @@ export const createAppointment = async (req, res, next) => {
         appointment._id
       );
     }
-    console.log("Created appointment:", appointment);
     io.to(staff).emit("newAppointment", {
       appointment: {
         _id: appointment._id,
@@ -587,17 +580,10 @@ export const getClosestAvailableSlot = async (req, res, next) => {
         .startOf("day")
         .add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
-      console.log(
-        "Searching for closest slot on:",
-        searchDate,
-        "- Staff:",
-        staffId,
-        "- Duration:",
-        serviceDuration
-      );
+      console.log("test");
       const { slots } = await getAvailableSlots(
         staffId,
-        searchDate,
+        searchDate, 
         serviceDuration
       );
 
