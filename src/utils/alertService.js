@@ -29,7 +29,6 @@ export async function createSubscriptionPurchasedAlert(businessId, planName) {
         })
       )
     );
-
     // Emit socket event to all users in the business
     users.forEach((user) => {
       io.to(String(user._id)).emit("newAlert", {
@@ -91,10 +90,6 @@ export async function createSubscriptionExpiringAlert(
         expirationDate: expirationDate,
       });
     });
-
-    console.log(
-      `Created ${alerts.length} alerts for subscription expiring: ${planName}`
-    );
     return alerts;
   } catch (error) {
     console.error("Error creating subscription expiring alerts:", error);

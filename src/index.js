@@ -102,7 +102,6 @@ console.log("MONGO_URI:", MONGO_URI);
     console.log("✅ MongoDB connected");
     await chatbot.initialize();
 
-    // Start subscription expiration check job
     startSubscriptionExpirationJob();
 
     server.listen(PORT, () => {

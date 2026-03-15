@@ -193,18 +193,10 @@ const seedDB = async () => {
         
         let status = "confirmed";
         if (isPast) {
-          // Mostly completed, but some cancelled
-          status = Math.random() > 0.1 ? "completed" : "cancelled";
+          status = "completed";
         } else {
-          // Mix of confirmed, pending, and some cancelled for future appointments
-          const rand = Math.random();
-          if (rand > 0.4) {
-            status = "confirmed";
-          } else if (rand > 0.1) {
-            status = "pending";
-          } else {
-            status = "cancelled";
-          }
+           // mix of confirmed and pending for future appointments
+           status = Math.random() > 0.3 ? "confirmed" : "pending"; 
         }
 
         const appt = new Appointment({
