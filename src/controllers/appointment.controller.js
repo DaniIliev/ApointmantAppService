@@ -105,6 +105,7 @@ export const createAppointment = async (req, res, next) => {
       clientPhone,
       email,
       staff,
+      locationId,
     } = req.body;
 
     const biz = await Business.findById(business);
@@ -164,6 +165,7 @@ export const createAppointment = async (req, res, next) => {
       clientPhone,
       email,
       staff,
+      locationId,
     });
 
     const newAlert = await Alert.create({
@@ -245,14 +247,19 @@ export const createAppointment = async (req, res, next) => {
 export const listBusinessAppointments = async (req, res, next) => {
   try {
     const { businessId } = req.params;
+    const { locationId } = req.query;
     const biz = await Business.findById(businessId);
     if (!biz) return res.status(404).json({ message: "Business не е намерен" });
     if (String(biz.owner) !== req.user.id)
       return res.status(403).json({ message: "Не сте собственик" });
 
-    const items = await Appointment.find({ business: businessId })
+    const filter = { business: businessId };
+    if (locationId) filter.locationId = locationId;
+
+    const items = await Appointment.find(filter)
       .populate("service", "name durationMinutes price")
       .populate("client", "email role")
+      .populate("locationId")
       .sort({ appointmentTime: 1 })
       .lean();
 

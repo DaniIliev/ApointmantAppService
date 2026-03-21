@@ -13,6 +13,7 @@ export const getBusinessOptions = async (req, res, next) => {
 };
 import Business from "../models/Business.js";
 import StaffSchedule from "../models/StaffSchedule.js";
+import User from "../models/User.js";
 import { generateQrDataUrl } from "../utils/qrcode.js";
 
 const extractBusinessData = (body) => {
@@ -54,6 +55,12 @@ export const createBusiness = async (req, res, next) => {
     const qrCodeUrl = await generateQrDataUrl(link);
     business.qrCodeUrl = qrCodeUrl;
     await business.save();
+
+    // Update user role and businessId
+    await User.findByIdAndUpdate(req.user.id, {
+      role: "business",
+      businessId: business._id,
+    });
 
     res.status(201).json(business);
   } catch (e) {

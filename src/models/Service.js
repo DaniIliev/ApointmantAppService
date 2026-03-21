@@ -25,6 +25,11 @@ const serviceSchema = new mongoose.Schema(
       enum: ["cash", "card", "cash_and_card"],
       default: "cash",
     },
+    locationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Location",
+      required: false,
+    },
   },
   { timestamps: true }
 );

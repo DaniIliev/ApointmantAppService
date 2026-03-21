@@ -8,7 +8,7 @@ import mongoose from "mongoose";
 export const register = async (req, res, next) => {
   try {
     const { email, password, role, phone, firstName, lastName } = req.body;
-    if (!email || !password || !role)
+    if (!email || !password)
       return res
         .status(400)
         .json({ message: "email, password, role са задължителни" });
@@ -138,7 +138,7 @@ export const getUserById = async (req, res, next) => {
 
 export const updateUser = async (req, res, next) => {
   const { id } = req.params;
-  const { firstName, lastName, phone, primaryColor, theme } = req.body;
+  const { firstName, lastName, phone, primaryColor, theme} = req.body;
 
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({ message: "Invalid ID format" });
@@ -177,6 +177,25 @@ export const updateUser = async (req, res, next) => {
   }
 };
 
+export const updateRole = async (req, res, next) => {
+  const { role } = req.body;
+  const userId = req.user.id;
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "Потребителят не е намерен" });
+    }
+
+    user.role = role;
+    await user.save();
+
+    res.json({ message: "Ролята е обновена успешно", role: user.role });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const updateProfilePicture = async (req, res, next) => {
   const { id } = req.params;
 
@@ -203,6 +222,36 @@ export const updateProfilePicture = async (req, res, next) => {
     res.status(200).json({
       message: "Profile picture updated successfully",
       profilePictureUrl: updatedUser.profilePictureUrl,
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+export const refreshToken = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, role: user.role, businessId: user.businessId },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        businessId: user.businessId,
+        mustChangePassword: user.mustChangePassword,
+      },
     });
   } catch (e) {
     next(e);
