@@ -13,6 +13,7 @@ export const getBusinessOptions = async (req, res, next) => {
 };
 import Business from "../models/Business.js";
 import StaffSchedule from "../models/StaffSchedule.js";
+import User from "../models/User.js";
 import { generateQrDataUrl } from "../utils/qrcode.js";
 
 const extractBusinessData = (body) => {
@@ -54,6 +55,12 @@ export const createBusiness = async (req, res, next) => {
     const qrCodeUrl = await generateQrDataUrl(link);
     business.qrCodeUrl = qrCodeUrl;
     await business.save();
+
+    // Update user role and businessId
+    await User.findByIdAndUpdate(req.user.id, {
+      role: "business",
+      businessId: business._id,
+    });
 
     res.status(201).json(business);
   } catch (e) {
@@ -107,44 +114,8 @@ export const getBusinessById = async (req, res, next) => {
     if (!business) {
       return res.status(404).json({ message: "Business не е намерен" });
     }
-    const now = new Date();
-
-    const schedules = await StaffSchedule.find({
-      business: businessId,
-      startDate: { $lte: now },
-      endDate: { $gte: now },
-    }).lean();
-    let formattedHours = null;
-
-    if (schedules.length > 0) {
-      const representativeSchedule = schedules[0];
-      const workTime = representativeSchedule.workTime;
-      const isDayOff = representativeSchedule.isDayOff;
-
-      const formatTimeRange = (timeRange, isOff) => {
-        if (isOff) return "Почивен Ден";
-        if (timeRange && timeRange.start && timeRange.end) {
-          return `${timeRange.start}-${timeRange.end}`;
-        }
-        return "Не е зададено";
-      };
-
-      formattedHours = {
-        monday: formatTimeRange(workTime, isDayOff.monday),
-        tuesday: formatTimeRange(workTime, isDayOff.tuesday),
-        wednesday: formatTimeRange(workTime, isDayOff.wednesday),
-        thursday: formatTimeRange(workTime, isDayOff.thursday),
-        friday: formatTimeRange(workTime, isDayOff.friday),
-        saturday: formatTimeRange(workTime, isDayOff.saturday),
-        sunday: formatTimeRange(workTime, isDayOff.sunday),
-      };
-    } else {
-      formattedHours = "Няма зададен график";
-    }
-    res.json({
-      ...business,
-      schedule: formattedHours,
-    });
+    
+    res.json(business);
   } catch (e) {
     next(e);
   }

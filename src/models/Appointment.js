@@ -50,6 +50,11 @@ const appointmentSchema = new mongoose.Schema(
       ref: "User",
       required: false,
     },
+    locationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Location",
+      required: false,
+    },
   },
   { timestamps: true }
 );

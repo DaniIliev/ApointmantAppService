@@ -28,6 +28,11 @@ const StaffScheduleSchema = new mongoose.Schema(
     staff: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
+      // required: true, // Make staff optional for location schedules
+    },
+    location: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Location",
       required: true,
     },
     business: {
