@@ -30,6 +30,7 @@ import "./config/passport.js";
 import passport from "passport";
 
 const app = express();
+app.set("trust proxy", 1);
 const server = createServer(app);
 
 export const io = new Server(server, {
