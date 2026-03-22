@@ -2,109 +2,170 @@ import User from "../models/User.js";
 import Business from "../models/Business.js";
 import { sendPlanExpirationWarning } from "../utils/EmailService.js";
 import { createSubscriptionExpiringAlert } from "../utils/alertService.js";
+import cron from "node-cron";
 
 /**
- * Checks for subscriptions expiring in 7 days and sends email warnings to all users in those businesses.
- * Should be run daily via a cron job or scheduler.
+ * Checks for subscriptions expiring in a specific range of days and sends warnings.
  */
-export async function checkExpiringSubscriptions() {
-  try {
-    const now = new Date();
-    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const eightDaysFromNow = new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000);
+async function notifyExpiringSubscriptions(startDays, endDays, label) {
+  const now = new Date();
+  const startWindow = new Date(now.getTime() + startDays * 24 * 60 * 60 * 1000);
+  const endWindow = new Date(now.getTime() + endDays * 24 * 60 * 60 * 1000);
 
-    // Find businesses with subscriptions expiring in 7 days (between 7 and 8 days from now)
-    const expiringBusinesses = await Business.find({
-      subscriptionStatus: "active",
-      plan: {
-        $in: [
-          "Starter_Monthly",
-          "Professional_Monthly",
-          "Enterprise_Monthly",
-          "Starter_Annual",
-          "Professional_Annual",
-          "Enterprise_Annual",
-        ],
-      },
-      // Find subscriptions expiring within the 7-day window
-      $expr: {
-        $and: [
-          { $gte: ["$subscriptionCurrentPeriodEnd", sevenDaysFromNow] },
-          { $lt: ["$subscriptionCurrentPeriodEnd", eightDaysFromNow] },
-        ],
+console.log(`[SubscriptionJob] Checking ${label}: ${startWindow.toLocaleString('bg-BG')} to ${endWindow.toLocaleString('bg-BG')}`);
+
+  try {
+    // We search the User collection because subscriptionCurrentPeriodEnd is stored there
+    // specifically for the 'business' owner.
+    const expiringUsers = await User.find({
+      role: "business",
+      subscriptionStatus: { $in: ["active", "past_due", "canceled"] },
+      subscriptionPlan: { $ne: "none" },
+      subscriptionCurrentPeriodEnd: {
+        $gte: startWindow,
+        $lt: endWindow,
       },
     });
 
-    console.log(
-      `Found ${expiringBusinesses.length} businesses with subscriptions expiring in 7 days`
-    );
+    console.log(`[SubscriptionJob] ${label}: Found ${expiringUsers.length} expiring owners.`);
 
-    for (const business of expiringBusinesses) {
-      // Get all users associated with this business
+    for (const owner of expiringUsers) {
+      if (!owner.businessId) continue;
+
+      const business = await Business.findById(owner.businessId);
+      if (!business) continue;
+
+      // Get all users associated with this business (including staff)
       const users = await User.find({
         businessId: business._id,
         role: { $in: ["business", "staff"] },
       }).select("email firstName lastName");
 
-      console.log(
-        `Notifying ${users.length} users for business: ${business.businessName}`
-      );
+      console.log(`[SubscriptionJob] Notifying ${users.length} users for business: ${business.businessName} (${label})`);
 
-      // Create in-app alert for all users in the business
       await createSubscriptionExpiringAlert(
         business._id,
-        business.plan,
-        business.subscriptionCurrentPeriodEnd
+        owner.subscriptionPlan,
+        owner.subscriptionCurrentPeriodEnd
       );
 
-      // Send email to each user
       for (const user of users) {
         if (user.email) {
           await sendPlanExpirationWarning(
             user.email,
             user.firstName || "Потребител",
             user.lastName || "",
-            business.plan,
-            business.subscriptionCurrentPeriodEnd,
+            owner.subscriptionPlan,
+            owner.subscriptionCurrentPeriodEnd,
             business.businessName
           );
         }
       }
     }
-
-    console.log("Subscription expiration check completed successfully");
   } catch (error) {
-    console.error("Error checking expiring subscriptions:", error);
+    console.error(`[SubscriptionJob] Error in ${label}:`, error);
   }
 }
 
 /**
- * Sets up a daily interval to check for expiring subscriptions.
- * Runs every 24 hours at midnight.
+ * Main function to check for upcoming expirations.
+ */
+export async function checkExpiringSubscriptions() {
+  console.log(`[SubscriptionJob] Starting expiration checks at ${new Date().toISOString()}`);
+  
+  // 1-day warning: anything expiring in the next 24 hours
+  await notifyExpiringSubscriptions(0, 1, "Expires within 24h");
+  
+  // 7-day warning: anything expiring between 6 and 7 days from now
+  await notifyExpiringSubscriptions(6, 7, "Expires in 7 days");
+}
+
+/**
+ * Resets status to "none" for users and businesses whose subscription has expired.
+ */
+export async function resetExpiredSubscriptions() {
+  try {
+    const now = new Date();
+    
+    // 1. Find all business owners whose subscription has expired
+    const expiredOwners = await User.find({
+      role: "business",
+      subscriptionCurrentPeriodEnd: { $lt: now },
+      subscriptionStatus: { $ne: "none" }
+    });
+
+    console.log(`[SubscriptionJob] Found ${expiredOwners.length} owners with expired subscriptions.`);
+
+    let resetUsersCount = 0;
+    let resetBusinessesCount = 0;
+
+    for (const owner of expiredOwners) {
+      // Reset the owner
+      owner.subscriptionPlan = "none";
+      owner.subscriptionStatus = "none";
+      owner.subscriptionBusinessId = null;
+      owner.subscriptionActivatedAt = null;
+      owner.subscriptionCurrentPeriodEnd = null;
+      await owner.save();
+      resetUsersCount++;
+
+      if (owner.businessId) {
+        // Reset the business
+        await Business.findByIdAndUpdate(owner.businessId, {
+          plan: "none",
+          subscriptionStatus: "none",
+          stripeSubscriptionId: null,
+          // If Business model had planExpiresAt, reset it too
+          planExpiresAt: null
+        });
+        resetBusinessesCount++;
+
+        // Reset all staff and other users in the business
+        const staffUpdate = await User.updateMany(
+          { businessId: owner.businessId, _id: { $ne: owner._id } },
+          {
+            $set: {
+              subscriptionPlan: "none",
+              subscriptionStatus: "none",
+              subscriptionBusinessId: null,
+              subscriptionActivatedAt: null,
+              subscriptionCurrentPeriodEnd: null
+            }
+          }
+        );
+        resetUsersCount += staffUpdate.modifiedCount;
+      }
+    }
+
+    console.log(`[SubscriptionJob] Successfully reset ${resetUsersCount} users and ${resetBusinessesCount} businesses.`);
+    return { users: resetUsersCount, businesses: resetBusinessesCount };
+  } catch (error) {
+    console.error("[SubscriptionJob] Error in resetExpiredSubscriptions:", error);
+  }
+}
+
+/**
+ * Combined function to run all subscription-related checks.
+ * Can be called manually.
+ */
+export async function runFullSubscriptionCheck() {
+  await resetExpiredSubscriptions();
+  await checkExpiringSubscriptions();
+  console.log("[SubscriptionJob] Full check completed.");
+}
+
+/**
+ * Starts the daily cron job.
  */
 export function startSubscriptionExpirationJob() {
-  // Run immediately on startup
-  checkExpiringSubscriptions();
+  // Schedule to run daily at midnight
+  cron.schedule("0 0 * * *", async () => {
+    console.log("[Cron] Running daily subscription checks...");
+    await runFullSubscriptionCheck();
+  });
 
-  // Schedule to run daily at midnight (00:00)
-  const now = new Date();
-  const midnight = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1,
-    0,
-    0,
-    0,
-    0
-  );
-  const msUntilMidnight = midnight.getTime() - now.getTime();
-
-  setTimeout(() => {
-    checkExpiringSubscriptions();
-    setInterval(checkExpiringSubscriptions, 24 * 60 * 60 * 1000);
-  }, msUntilMidnight);
-
-  console.log(
-    "Subscription expiration check job started. Next run at midnight."
-  );
+  console.log("[SubscriptionJob] Cron job scheduled: daily at midnight.");
+  
+  // Optional: run once on startup
+  runFullSubscriptionCheck();
 }

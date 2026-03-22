@@ -25,35 +25,6 @@ const businessSchema = new mongoose.Schema(
       type: String,
     },
 
-    phone: {
-      type: String,
-    },
-    email: {
-      type: String,
-      trim: true,
-      lowercase: true,
-    },
-    website: {
-      type: String,
-      trim: true,
-    },
-
-    address: {
-      type: String,
-    },
-    addressLine2: {
-      type: String,
-    },
-    postalCode: {
-      type: String,
-    },
-    city: {
-      type: String,
-    },
-    country: {
-      type: String,
-    },
-
     businessImageUrl: {
       type: String,
     },
@@ -103,6 +74,20 @@ const businessSchema = new mongoose.Schema(
     stripeConnectDetailsSubmitted: {
       type: Boolean,
       default: false, // Дали са подадени всички необходими данни
+    },
+    // Contact & Address Details
+    phone: {
+      type: String,
+      trim: true,
+    },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
+    website: {
+      type: String,
+      trim: true,
     },
   },
 

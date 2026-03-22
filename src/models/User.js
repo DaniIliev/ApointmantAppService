@@ -17,14 +17,22 @@ const userSchema = new mongoose.Schema(
       enum: ["light", "dark"],
       default: "light",
     },
-    passwordHash: { type: String, required: true },
+    passwordHash: { type: String, required: false },
+    googleId: { type: String, unique: true, sparse: true },
+    facebookId: { type: String, unique: true, sparse: true },
+    appleId: { type: String, unique: true, sparse: true },
+    authProvider: {
+      type: String,
+      enum: ["local", "google", "facebook", "apple"],
+      default: "local",
+    },
     firstName: { type: String, required: false },
     lastName: { type: String, required: false },
     phone: { type: String, required: false },
     role: {
       type: String,
       enum: ["business", "personal", "staff", "admin"],
-      required: true,
+      // required: true,
     },
     businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
     subscriptionPlan: {
@@ -57,6 +65,7 @@ const userSchema = new mongoose.Schema(
     mustChangePassword: { type: Boolean, default: false },
     otpCode: { type: String, required: false },
     otpExpiresAt: { type: Date, required: false },
+    locationId: { type: mongoose.Schema.Types.ObjectId, ref: "Location" },
   },
   { timestamps: true }
 );

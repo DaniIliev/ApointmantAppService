@@ -105,14 +105,8 @@ export const createAppointment = async (req, res, next) => {
       clientPhone,
       email,
       staff,
+      locationId,
     } = req.body;
-
-    console.log(
-      "Creating appointment with dateTime:",
-      dateTime,
-      "- Current Sofia time:",
-      moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z")
-    );
 
     const biz = await Business.findById(business);
     if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
@@ -139,6 +133,7 @@ export const createAppointment = async (req, res, next) => {
       appointmentDateOnly,
       srv.duration
     );
+    console.log("Availability:", availability);
     const requestedSlot = moment.tz(dateTime, APP_TIMEZONE).format("HH:mm");
     const isSlotAvailable = availability.slots.some(
       (slot) => slot.startTime === requestedSlot
@@ -170,6 +165,7 @@ export const createAppointment = async (req, res, next) => {
       clientPhone,
       email,
       staff,
+      locationId,
     });
 
     const newAlert = await Alert.create({
@@ -228,7 +224,6 @@ export const createAppointment = async (req, res, next) => {
         appointment._id
       );
     }
-    console.log("Created appointment:", appointment);
     io.to(staff).emit("newAppointment", {
       appointment: {
         _id: appointment._id,
@@ -252,14 +247,19 @@ export const createAppointment = async (req, res, next) => {
 export const listBusinessAppointments = async (req, res, next) => {
   try {
     const { businessId } = req.params;
+    const { locationId } = req.query;
     const biz = await Business.findById(businessId);
     if (!biz) return res.status(404).json({ message: "Business не е намерен" });
     if (String(biz.owner) !== req.user.id)
       return res.status(403).json({ message: "Не сте собственик" });
 
-    const items = await Appointment.find({ business: businessId })
+    const filter = { business: businessId };
+    if (locationId) filter.locationId = locationId;
+
+    const items = await Appointment.find(filter)
       .populate("service", "name durationMinutes price")
       .populate("client", "email role")
+      .populate("locationId")
       .sort({ appointmentTime: 1 })
       .lean();
 
@@ -315,7 +315,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
               appt.service.name,
               appt.business.businessName,
               pi.amount_received,
-              pi.currency || "bgn"
+              pi.currency || "eur"
             );
           }
         }
@@ -345,7 +345,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
               refund.amount ||
                 appt.stripePaymentAmount ||
                 Math.round(appt.service.price * 100),
-              refund.currency || "bgn"
+              refund.currency || "eur"
             );
           }
         }
@@ -587,17 +587,10 @@ export const getClosestAvailableSlot = async (req, res, next) => {
         .startOf("day")
         .add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
-      console.log(
-        "Searching for closest slot on:",
-        searchDate,
-        "- Staff:",
-        staffId,
-        "- Duration:",
-        serviceDuration
-      );
+      console.log("test");
       const { slots } = await getAvailableSlots(
         staffId,
-        searchDate,
+        searchDate, 
         serviceDuration
       );
 
@@ -624,12 +617,6 @@ export const getClosestAvailableSlot = async (req, res, next) => {
       if (availableToday.length > 0) {
         closestSlot = availableToday[0];
         foundDateObject = searchDateMoment;
-        console.log(
-          "Found closest slot:",
-          closestSlot,
-          "on",
-          foundDateObject.format("YYYY-MM-DD")
-        );
         break;
       }
     }

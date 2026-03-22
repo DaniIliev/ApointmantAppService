@@ -12,7 +12,7 @@ import {
 
 export const listBusinessStaff = async (req, res, next) => {
   try {
-    const { businessId } = req.query;
+    const { businessId, locationId } = req.query;
     if (!businessId) {
       return res
         .status(400)
@@ -22,10 +22,16 @@ export const listBusinessStaff = async (req, res, next) => {
     if (!business) {
       return res.status(404).json({ message: "Бизнесът не е намерен." });
     }
-    const staffMembers = await User.find({
+
+    const filter = {
       businessId: business._id,
       role: { $in: ["business", "staff"] },
-    }).select("firstName lastName email phone role _id profilePictureUrl");
+    };
+    if (locationId) filter.locationId = locationId;
+
+    const staffMembers = await User.find(filter).select(
+      "firstName lastName email phone role _id profilePictureUrl locationId"
+    );
     res.json(staffMembers);
   } catch (e) {
     next(e);
@@ -34,7 +40,7 @@ export const listBusinessStaff = async (req, res, next) => {
 
 export const inviteStaff = async (req, res, next) => {
   try {
-    const { email, firstName, lastName, phone } = req.body;
+    const { email, firstName, lastName, phone, locationId } = req.body;
     const ownerId = req.user.id;
 
     // 1. Проверка дали потребителят е собственик на бизнес
@@ -66,6 +72,7 @@ export const inviteStaff = async (req, res, next) => {
       phone,
       role: "staff",
       businessId: business._id,
+      locationId: locationId || null,
       mustChangePassword: true,
     });
 

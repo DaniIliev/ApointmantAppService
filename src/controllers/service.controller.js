@@ -13,6 +13,7 @@ export const createService = async (req, res, next) => {
       staffs,
       category,
       paymentOption,
+      locationId
     } = req.body;
     const imageUrl = req.file ? req.file.path : undefined;
     let parsedStaffs = staffs;
@@ -31,12 +32,21 @@ export const createService = async (req, res, next) => {
       }
     }
 
-    const business = await Business.findById(req.user.businessId);
-    if (!business) {
+    let businessId = req.user.businessId;
+
+    if (!businessId) {
+      const ownedBusiness = await Business.findOne({ owner: req.user.id });
+      if (ownedBusiness) {
+        businessId = ownedBusiness._id;
+      }
+    }
+
+    if (!businessId) {
       return res.status(404).json({ message: "Бизнесът не е намерен." });
     }
+
     const service = await Service.create({
-      business: business._id,
+      business: businessId,
       name: name?.trim(),
       description,
       duration,
@@ -46,6 +56,7 @@ export const createService = async (req, res, next) => {
       imageUrl,
       staffs: parsedStaffs,
       paymentOption: paymentOption || "cash",
+      locationId,
     });
 
     res.status(201).json(service);
@@ -56,8 +67,10 @@ export const createService = async (req, res, next) => {
 
 export const listServices = async (req, res, next) => {
   try {
-    const { businessId } = req.query;
-    const services = await Service.find({ business: businessId }).lean();
+    const { businessId, locationId } = req.query;
+    const filter = { business: businessId };
+    if (locationId) filter.locationId = locationId;
+    const services = await Service.find(filter).lean();
     res.json(services);
   } catch (e) {
     next(e);

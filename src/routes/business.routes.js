@@ -20,13 +20,12 @@ router.get("/options", getBusinessOptions);
 // GET /api/business/:id
 router.get("/:id", getBusinessById);
 
-// POST /api/business - Създаване на бизнес (само за потребители с роля 'business')
-router.post("/", authRequired, requireRole("business"), createBusiness);
+// POST /api/business - Създаване на бизнес (само за оторизирани потребители)
+router.post("/", authRequired, createBusiness);
 
 // PUT/PATCH /api/business/:id - Актуализация на бизнес
 router.put(
   "/:id",
-  // authRequired,
   authMiddleware,
   requireRole("business"),
   upload.single("businessImageUrl"),

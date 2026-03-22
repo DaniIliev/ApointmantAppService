@@ -25,6 +25,9 @@ import { swaggerDocs } from "./config/swagger.js";
 import { notFound, errorHandler } from "./middlewares/error.js";
 import chatbot from "./chatbot/chatbot.js";
 import { startSubscriptionExpirationJob } from "./jobs/subscriptionExpirationCheck.js";
+import locationRoutes from "./routes/location.routes.js";
+import "./config/passport.js";
+import passport from "passport";
 
 const app = express();
 const server = createServer(app);
@@ -92,6 +95,8 @@ app.use("/api/kanban", kanbanRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/locations", locationRoutes);
+app.use(passport.initialize());
 
 app.use(notFound);
 app.use(errorHandler);
@@ -102,7 +107,6 @@ console.log("MONGO_URI:", MONGO_URI);
     console.log("✅ MongoDB connected");
     await chatbot.initialize();
 
-    // Start subscription expiration check job
     startSubscriptionExpirationJob();
 
     server.listen(PORT, () => {

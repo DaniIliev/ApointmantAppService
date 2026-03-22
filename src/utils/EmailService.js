@@ -449,7 +449,7 @@ export const sendAppointmentCancelledEmail = async (
   );
 };
 
-export const sendPaymentAuthorizationEmail = async (
+export const sendPaymentAuthorizationEmail = (
   to,
   clientName,
   serviceName,
@@ -484,7 +484,7 @@ export const sendPaymentAuthorizationEmail = async (
   );
 };
 
-export const sendPaymentCapturedEmail = async (
+export const sendPaymentCapturedEmail = (
   to,
   clientName,
   serviceName,
@@ -519,7 +519,7 @@ export const sendPaymentCapturedEmail = async (
   );
 };
 
-export const sendPaymentRefundedEmail = async (
+export const sendPaymentRefundedEmail = (
   to,
   clientName,
   serviceName,
