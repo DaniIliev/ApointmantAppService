@@ -38,9 +38,17 @@ const locationSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+    website: {
+      type: String,
+      trim: true,
+    },
     isDefault: {
       type: Boolean,
       default: false,
+    },
+    imageUrl: {
+      type: String,
+      trim: true,
     },
   },
   { timestamps: true }

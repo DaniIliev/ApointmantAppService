@@ -75,6 +75,20 @@ const businessSchema = new mongoose.Schema(
       type: Boolean,
       default: false, // Дали са подадени всички необходими данни
     },
+    // Contact & Address Details
+    phone: {
+      type: String,
+      trim: true,
+    },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
+    website: {
+      type: String,
+      trim: true,
+    },
   },
 
   { timestamps: true }

@@ -8,6 +8,8 @@ import {
   deleteLocation,
 } from "../controllers/location.controller.js";
 
+import upload from "../storage.js";
+
 const router = express.Router();
 
 // GET /api/locations
@@ -17,10 +19,10 @@ router.get("/", getLocations);
 router.get("/:id", getLocationById);
 
 // POST /api/locations
-router.post("/", authRequired, createLocation);
+router.post("/", authRequired, upload.single("imageUrl"), createLocation);
 
 // PUT /api/locations/:id
-router.put("/:id", authRequired, requireRole("business"), updateLocation);
+router.put("/:id", authRequired, requireRole("business"), upload.single("imageUrl"), updateLocation);
 
 // DELETE /api/locations/:id
 router.delete("/:id", authRequired, requireRole("business"), deleteLocation);
