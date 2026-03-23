@@ -567,7 +567,7 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     );
 
     let closestSlot = null;
-    const daysToSearch = 50; // Search for the next 20 days
+    const daysToSearch = 50; // Search for the next 50 days
     let foundDateObject = null; // Ще съхранява moment обект
     const now = moment.tz(APP_TIMEZONE); // Get current Sofia time once
 

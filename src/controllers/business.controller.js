@@ -12,11 +12,10 @@ export const getBusinessOptions = async (req, res, next) => {
   }
 };
 import Business from "../models/Business.js";
-import StaffSchedule from "../models/StaffSchedule.js";
 import User from "../models/User.js";
 import { generateQrDataUrl } from "../utils/qrcode.js";
 
-const extractBusinessData = (body) => {
+const extractBusinessData = (body = {}) => {
   return {
     // General Information
     category: body.category,
@@ -25,7 +24,6 @@ const extractBusinessData = (body) => {
     openingHours: body.openingHours, // Contact Details
     phone: body.phone,
     email: body.email,
-    aboutUs: body.aboutUs,
     website: body.website, // Address
     address: body.address, // Street and Number
     addressLine2: body.addressLine2,
@@ -33,13 +31,22 @@ const extractBusinessData = (body) => {
     city: body.city,
     country: body.country, // Image URL (assuming it is sent in the body for simplicity,
     // but a proper file upload middleware is recommended for production)
-    businessImageUrl: body.imagePreview,
+    businessImageUrl: body.imagePreview || body.businessImageUrl,
   };
 };
 
 export const createBusiness = async (req, res, next) => {
   try {
-    const data = extractBusinessData(req.body);
+    let data = extractBusinessData(req.body);
+
+    if (req.file) {
+      const imageUrl = req.file.secure_url || req.file.path;
+      data = {
+        ...data,
+        businessImageUrl: imageUrl,
+      };
+    }
+
     if (!data.businessName) {
       return res.status(400).json({ message: "Име на бизнеса е задължително" });
     }
