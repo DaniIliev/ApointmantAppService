@@ -7,7 +7,6 @@ import {
 } from "../utils/EmailService.js";
 import {
   syncBusinessSubscriptionToUser,
-  clearUserSubscription,
 } from "../utils/subscriptionSync.js";
 
 export const listBusinessStaff = async (req, res, next) => {
