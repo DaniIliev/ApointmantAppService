@@ -15,7 +15,6 @@ import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
 import moment from "moment-timezone";
 import { requireStripe } from "../config/stripe.js";
 
-// Set the timezone for the application (Bulgaria)
 const APP_TIMEZONE = "Europe/Sofia";
 import { io } from "../index.js";
 import bcrypt from "bcryptjs";
@@ -278,9 +277,9 @@ export const updateAppointmentStatus = async (req, res, next) => {
     if (!appt)
       return res.status(404).json({ message: "Appointment не е намерен" });
 
-    if (String(appt.business.owner) !== req.user.id) {
-      return res.status(403).json({ message: "Не сте собственик" });
-    }
+    // if (String(appt.business.owner) !== req.user.id) {
+    //   return res.status(403).json({ message: "Не сте собственик" });
+    // }
 
     // Check if appointment is cancelled
     if (appt.status === "cancelled") {
