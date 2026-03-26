@@ -13,6 +13,13 @@ export const getAlerts = async (req, res, next) => {
     // Filter out alerts where the appointment was not found (due to status mismatch)
     const filteredAlerts = alerts.filter((alert) => alert.appointment !== null);
 
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+      "Surrogate-Control": "no-store",
+    });
+
     res.status(200).json(filteredAlerts);
   } catch (error) {
     next(error);
