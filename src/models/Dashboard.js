@@ -38,6 +38,7 @@ const ChartConfigurationSchema = new mongoose.Schema(
     timeRange: { type: String }, // last7days|last30days|thismonth|custom
     from: { type: String },
     to: { type: String },
+    locationId: { type: String },
   },
   { _id: false }
 );

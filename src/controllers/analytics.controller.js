@@ -3,6 +3,7 @@ import moment from "moment-timezone";
 import Appointment from "../models/Appointment.js";
 import Service from "../models/Service.js";
 import User from "../models/User.js";
+import Location from "../models/Location.js";
 
 const getTimeRange = (period, from, to, timeZone = "Europe/Sofia") => {
   const localTime = moment().tz(timeZone);
@@ -68,6 +69,7 @@ export const getAnalytics = async (req, res) => {
       to,
       staffId,
       serviceId,
+      locationId,
       status,
     } = req.query;
 
@@ -87,6 +89,10 @@ export const getAnalytics = async (req, res) => {
     if (serviceId) {
       const serId = new mongoose.Types.ObjectId(serviceId);
       baseMatch.service = { $in: [serId, serId.toString()] };
+    }
+    if (locationId) {
+      const locId = new mongoose.Types.ObjectId(locationId);
+      baseMatch.locationId = { $in: [locId, locId.toString()] };
     }
     // ---- APPOINTMENTS ----
     if (source === "appointments") {
@@ -247,6 +253,37 @@ export const getAnalytics = async (req, res) => {
           rows.map((r) => ({ name: r._id || "Uncategorized", value: r.value }))
         );
       }
+
+      if (dimension === "by_location") {
+        const rows = await Appointment.aggregate([
+          { $match: baseMatch },
+          {
+            $lookup: {
+              from: Location.collection.name,
+              localField: "locationId",
+              foreignField: "_id",
+              as: "locationDetails",
+            },
+          },
+          {
+            $unwind: {
+              path: "$locationDetails",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $group: {
+              _id: "$locationId",
+              name: { $first: "$locationDetails.name" },
+              value: { $sum: 1 },
+            },
+          },
+          { $sort: { value: -1 } },
+        ]);
+        return res.json(
+          rows.map((r) => ({ name: r.name || "Default / Unassigned", value: r.value }))
+        );
+      }
     }
 
     // ---- REVENUE ----
@@ -381,6 +418,46 @@ export const getAnalytics = async (req, res) => {
           rows.map((r) => ({ name: r.name || "Unknown", value: r.revenue }))
         );
       }
+
+      if (dimension === "by_location") {
+        const rows = await Appointment.aggregate([
+          { $match: baseMatch },
+          {
+            $lookup: {
+              from: Service.collection.name,
+              localField: "service",
+              foreignField: "_id",
+              as: "serviceDetails",
+            },
+          },
+          { $unwind: "$serviceDetails" },
+          {
+            $lookup: {
+              from: Location.collection.name,
+              localField: "locationId",
+              foreignField: "_id",
+              as: "locationDetails",
+            },
+          },
+          {
+            $unwind: {
+              path: "$locationDetails",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $group: {
+              _id: "$locationId",
+              name: { $first: "$locationDetails.name" },
+              revenue: { $sum: "$serviceDetails.price" },
+            },
+          },
+          { $sort: { revenue: -1 } },
+        ]);
+        return res.json(
+          rows.map((r) => ({ name: r.name || "Default / Unassigned", value: r.revenue }))
+        );
+      }
     }
 
     // ---- SERVICES ----
@@ -443,6 +520,59 @@ export const getAnalytics = async (req, res) => {
             bookings: r.bookings,
           }))
         );
+      }
+    }
+    // ---- CLIENTS ----
+    if (source === "clients") {
+      if (dimension === "stats") {
+        // Total unique clients in period
+        const rows = await Appointment.aggregate([
+          { $match: baseMatch },
+          {
+            $group: {
+              _id: "$client",
+              count: { $sum: 1 },
+            },
+          },
+        ]);
+
+        return res.json({
+          totalactive: rows.length,
+          bookings: rows.reduce((acc, r) => acc + r.count, 0),
+        });
+      }
+
+      if (dimension === "time_series") {
+        let _idExpr;
+        if (groupBy === "day")
+          _idExpr = {
+            $dateToString: { format: "%Y-%m-%d", date: "$appointmentTime.start" },
+          };
+        else if (groupBy === "week")
+          _idExpr = {
+            $dateToString: { format: "%G-%V", date: "$appointmentTime.start" },
+          };
+        else
+          _idExpr = {
+            $dateToString: { format: "%Y-%m", date: "$appointmentTime.start" },
+          };
+
+        const rows = await Appointment.aggregate([
+          { $match: baseMatch },
+          {
+            $group: {
+              _id: { date: _idExpr, client: "$client" },
+            },
+          },
+          {
+            $group: {
+              _id: "$_id.date",
+              value: { $sum: 1 }, // Unique clients per day/week/month
+            },
+          },
+          { $sort: { _id: 1 } },
+        ]);
+        return res.json(rows.map((r) => ({ name: r._id, value: r.value })));
       }
     }
 
