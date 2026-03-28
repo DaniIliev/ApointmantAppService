@@ -83,6 +83,16 @@ export const login = async (req, res, next) => {
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    let locations = [];
+    if (user.role === "business" && user.businessId) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ businessId: user.businessId }).lean();
+    } else if (user.role === "staff" && user.locationIds) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ _id: { $in: user.locationIds } }).lean();
+    }
+
     res.json({
       token,
       user: {
@@ -93,6 +103,7 @@ export const login = async (req, res, next) => {
         lastName: user.lastName,
         businessId: user.businessId,
         mustChangePassword: user.mustChangePassword,
+        locations,
       },
     });
   } catch (e) {
@@ -114,6 +125,15 @@ export const getUserById = async (req, res, next) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    let locations = [];
+    if (user.role === "business" && user.businessId) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ businessId: user.businessId }).lean();
+    } else if (user.role === "staff" && user.locationIds) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ _id: { $in: user.locationIds } }).lean();
+    }
+
     res.status(200).json({
       _id: user._id,
       email: user.email,
@@ -130,6 +150,7 @@ export const getUserById = async (req, res, next) => {
       subscriptionBusinessId: user.subscriptionBusinessId,
       subscriptionActivatedAt: user.subscriptionActivatedAt,
       subscriptionCurrentPeriodEnd: user.subscriptionCurrentPeriodEnd,
+      locations,
     });
   } catch (error) {
     next(e);
@@ -241,6 +262,15 @@ export const refreshToken = async (req, res, next) => {
       { expiresIn: "7d" }
     );
 
+    let locations = [];
+    if (user.role === "business" && user.businessId) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ businessId: user.businessId }).lean();
+    } else if (user.role === "staff" && user.locationIds) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ _id: { $in: user.locationIds } }).lean();
+    }
+
     res.json({
       token,
       user: {
@@ -251,6 +281,7 @@ export const refreshToken = async (req, res, next) => {
         lastName: user.lastName,
         businessId: user.businessId,
         mustChangePassword: user.mustChangePassword,
+        locations,
       },
     });
   } catch (e) {

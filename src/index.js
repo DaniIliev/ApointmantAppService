@@ -59,7 +59,12 @@ app.use(
   cors({
     origin: [process.env.CLIENT_URL, "http://localhost:3000"].filter(Boolean),
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "x-auth-token",
+      "x-location-id",
+    ],
     credentials: true,
   })
 );

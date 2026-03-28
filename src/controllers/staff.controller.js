@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
 import Business from "../models/Business.js";
@@ -8,10 +9,16 @@ import {
 import {
   syncBusinessSubscriptionToUser,
 } from "../utils/subscriptionSync.js";
+import StaffSchedule from "../models/StaffSchedule.js";
+import DailySchedule from "../models/DailySchedule.js";
+import Service from "../models/Service.js";
 
 export const listBusinessStaff = async (req, res, next) => {
   try {
     const { businessId, locationId } = req.query;
+    const headerLocationId = req.headers["x-location-id"];
+    const effectiveLocationId = locationId || headerLocationId;
+
     if (!businessId) {
       return res
         .status(400)
@@ -24,12 +31,41 @@ export const listBusinessStaff = async (req, res, next) => {
 
     const filter = {
       businessId: business._id,
-      role: { $in: ["business", "staff"] },
     };
-    if (locationId) filter.locationId = locationId;
+    if (effectiveLocationId) {
+      filter.$or = [
+        { role: "business" },
+        { role: "staff", locationIds: { $in: [effectiveLocationId] } }
+      ];
+    } else {
+      filter.role = { $in: ["business", "staff"] };
+    }
+
+    // Filter staff who have assigned services if requested
+    const { onlyWithServices } = req.query;
+    if (onlyWithServices === "true") {
+      const serviceFilter = { business: business._id };
+      if (effectiveLocationId) {
+        serviceFilter.locationId = effectiveLocationId;
+      }
+      const services = await Service.find(serviceFilter).select("staffMembers");
+      
+      const assignedStaffIds = new Set();
+      services.forEach(service => {
+        if (service.staffMembers && Array.isArray(service.staffMembers)) {
+          service.staffMembers.forEach(id => {
+            if (id && mongoose.Types.ObjectId.isValid(id)) {
+              assignedStaffIds.add(id.toString());
+            }
+          });
+        }
+      });
+      
+      filter._id = { $in: Array.from(assignedStaffIds) };
+    }
 
     const staffMembers = await User.find(filter).select(
-      "firstName lastName email phone role _id profilePictureUrl locationId"
+      "firstName lastName email phone role _id profilePictureUrl locationIds"
     );
     res.json(staffMembers);
   } catch (e) {
@@ -51,60 +87,86 @@ export const inviteStaff = async (req, res, next) => {
     }
 
     // 2. Проверка дали има съществуващ потребител с този имейл
-    const existingUser = await User.findOne({ email });
+    const normalizedEmail = email.trim().toLowerCase();
+    let existingUser = await User.findOne({ email: normalizedEmail });
+
     if (existingUser) {
-      return res
-        .status(409)
-        .json({ message: "Потребител с този имейл вече съществува." });
+      return await handleExistingStaffUser(existingUser, business, locationId, res);
     }
 
     // 3. Генериране на временна парола
     const tempPassword = Math.random().toString(36).slice(-8);
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-    // 4. Създаване на нов потребител със роля 'staff'
-    const newStaff = await User.create({
-      email,
-      passwordHash,
-      firstName,
-      lastName,
-      phone,
-      role: "staff",
-      businessId: business._id,
-      locationId: locationId || null,
-      mustChangePassword: true,
-    });
-
-    if (business.plan && business.plan !== "none") {
-      await syncBusinessSubscriptionToUser(newStaff._id, business._id, {
-        setActivatedAt: false,
+    // 4. Опит за създаване (с обработка на Race Condition)
+    try {
+      const newStaff = await User.create({
+        email: normalizedEmail,
+        passwordHash,
+        firstName,
+        lastName,
+        phone,
+        role: "staff",
+        businessId: business._id,
+        locationIds: locationId ? [locationId] : [],
+        mustChangePassword: true,
       });
+
+      if (business.plan && business.plan !== "none") {
+        await syncBusinessSubscriptionToUser(newStaff._id, business._id, {
+          setActivatedAt: false,
+        });
+      }
+
+      // Автоматично клониране на графика на локацията към новия служител
+      if (locationId) {
+        await cloneLocationScheduleToStaff(
+          newStaff._id,
+          locationId,
+          business._id
+        );
+      }
+
+      await inviteStaffEmail(
+        firstName,
+        lastName,
+        normalizedEmail,
+        tempPassword,
+        business.businessName
+      );
+
+        return res.status(201).json({
+          message:
+            "Служителят е поканен успешно. Изпратен е имейл с временна парола.",
+          staff: {
+            _id: newStaff._id,
+            email: newStaff.email,
+            firstName: newStaff.firstName,
+            lastName: newStaff.lastName,
+            phone: newStaff.phone,
+            role: newStaff.role,
+            locationIds: newStaff.locationIds,
+          },
+        });
+      } catch (error) {
+        if (error.code === 11000) {
+          // Race Condition: Потребител е създаден между findOne и create
+          existingUser = await User.findOne({ email: normalizedEmail });
+          if (existingUser) {
+            return await handleExistingStaffUser(
+              existingUser,
+              business,
+              locationId,
+              res
+            );
+          }
+        }
+        throw error;
+      }
+    } catch (error) {
+      next(error);
     }
-
-    await inviteStaffEmail(
-      firstName,
-      lastName,
-      email,
-      tempPassword,
-      business.businessName
-    );
-
-    res.status(201).json({
-      message:
-        "Служителят е поканен успешно. Изпратен е имейл с временна парола.",
-      staff: {
-        _id: newStaff._id,
-        email: newStaff.email,
-        firstName: newStaff.firstName,
-        lastName: newStaff.lastName,
-        phone: newStaff.phone,
-        role: newStaff.role,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+  };
 
 export const getStaffByIds = async (req, res, next) => {
   try {
@@ -240,3 +302,91 @@ export const updateStaffEmail = async (req, res, next) => {
     next(e);
   }
 };
+
+/**
+ * Помощна функция за обработка на вече съществуващ потребител (логика за добавяне към локация)
+ */
+async function handleExistingStaffUser(user, business, locationId, res) {
+  if (
+    String(user.businessId) === String(business._id) &&
+    user.role === "staff"
+  ) {
+    if (locationId && !user.locationIds.includes(locationId)) {
+      user.locationIds.push(locationId);
+      await user.save();
+
+      // Автоматично клониране на графика на локацията към служителя
+      await cloneLocationScheduleToStaff(user._id, locationId, business._id);
+
+      return res.status(200).json({
+        message: "Служителят беше добавен към новата локация.",
+        staff: {
+          _id: user._id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          phone: user.phone,
+          role: user.role,
+          locationIds: user.locationIds,
+        },
+      });
+    }
+    return res
+      .status(409)
+      .json({ message: "Този служител вече е добавен към тази локация." });
+  }
+
+  return res
+    .status(409)
+    .json({ message: "Потребител с този имейл вече съществува в системата." });
+}
+
+/**
+ * Клонира графика на локацията (staff: null) към новосъздадения служител
+ */
+async function cloneLocationScheduleToStaff(staffId, locationId, businessId) {
+  try {
+    // 1. Проверка дали служителят вече има график за тази локация
+    const existingStaffSchedule = await StaffSchedule.findOne({
+      staff: staffId,
+      location: locationId,
+    });
+    if (existingStaffSchedule) return;
+
+    // 2. Намиране на дефолтния график на локацията (staff: null)
+    const locationSchedule = await StaffSchedule.findOne({
+      staff: null,
+      location: locationId,
+    }).populate("dailySchedule");
+
+    if (!locationSchedule || !locationSchedule.dailySchedule) {
+      console.log(`ℹ️ Няма дефолтен график за локация ${locationId}`);
+      return;
+    }
+
+    // 3. Клониране на DailySchedule (създаване на нов запис)
+    const newDailySchedule = new DailySchedule({
+      workHours: locationSchedule.dailySchedule.workHours,
+    });
+    await newDailySchedule.save();
+
+    // 4. Създаване на нов StaffSchedule за служителя
+    const newStaffSchedule = new StaffSchedule({
+      startDate: locationSchedule.startDate,
+      endDate: locationSchedule.endDate,
+      workTime: locationSchedule.workTime,
+      isDayOff: locationSchedule.isDayOff,
+      break1: locationSchedule.break1,
+      break2: locationSchedule.break2,
+      break3: locationSchedule.break3,
+      staff: staffId,
+      location: locationId,
+      business: businessId,
+      dailySchedule: newDailySchedule._id,
+    });
+    await newStaffSchedule.save();
+    console.log(`✅ Графикът на локацията е клониран за служител ${staffId}`);
+  } catch (error) {
+    console.error("❌ Грешка при клониране на графика:", error);
+  }
+}

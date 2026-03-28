@@ -33,28 +33,25 @@ const generateTemporaryPassword = () => {
 
 export const getDashboardData = async (req, res) => {
   try {
-    let appointments;
     const userId = req.user.id;
     const userRole = req.user.role;
+    const locationId = req.headers["x-location-id"];
+
+    const filter = {};
+    if (locationId) filter.locationId = locationId;
+
     if (userRole === "personal") {
-      appointments = await Appointment.find({ client: userId }).populate(
-        "business service"
-      );
-    } else if (userRole === "business") {
-      const business = await Business.findOne({ owner: userId });
-      if (!business) {
-        return res.status(404).json({ message: "Business not found" });
-      }
-      appointments = await Appointment.find({ staff: userId }).populate(
-        "business service client"
-      );
-    } else if (userRole === "staff") {
-      appointments = await Appointment.find({ staff: userId }).populate(
-        "business service client"
-      );
+      filter.client = userId;
+    } else if (userRole === "business" || userRole === "staff") {
+      // For business owner or staff, we show their assigned appointments
+      filter.staff = userId;
     } else {
       return res.status(403).json({ message: "Invalid user role" });
     }
+
+    const appointments = await Appointment.find(filter).populate(
+      "business service client"
+    );
 
     const transformedAppointments = appointments.map((appointment) => {
       return {
@@ -117,7 +114,7 @@ export const createAppointment = async (req, res, next) => {
         .json({ message: "Невалидна услуга за този бизнес" });
     }
 
-    if (!srv.staffs.filter((s) => s._id == staff)) {
+    if (!srv.staffMembers.some((id) => String(id) === String(staff))) {
       return res.status(400).json({
         message: "Избраният служител не може да извърши тази услуга.",
       });
@@ -130,7 +127,8 @@ export const createAppointment = async (req, res, next) => {
     const availability = await getAvailableSlots(
       staff,
       appointmentDateOnly,
-      srv.duration
+      srv.duration,
+      locationId
     );
     console.log("Availability:", availability);
     const requestedSlot = moment.tz(dateTime, APP_TIMEZONE).format("HH:mm");
@@ -431,7 +429,8 @@ export const updateAppointment = async (req, res, next) => {
       const availability = await getAvailableSlots(
         newStaff,
         newDateTime,
-        srv.duration
+        srv.duration,
+        appt.locationId
       );
       const requestedSlot = moment(newDateTime).format("HH:mm");
       const isSlotAvailable = availability.slots.some(
@@ -502,7 +501,7 @@ export const updateAppointment = async (req, res, next) => {
 // НОВ ЕНДПОЙНТ: Връща свободните часове за конкретен служител и дата
 export const getFreeSlots = async (req, res, next) => {
   try {
-    const { staffId, date, serviceId } = req.query;
+    const { staffId, date, serviceId, locationId } = req.query;
 
     if (!staffId || !date || !serviceId) {
       return res
@@ -527,7 +526,8 @@ export const getFreeSlots = async (req, res, next) => {
     const { slots, message } = await getAvailableSlots(
       staffId,
       date,
-      serviceDuration
+      serviceDuration,
+      locationId
     );
     if (slots.length === 0) {
       return res.status(200).json({ slots: [], message: message });
@@ -540,7 +540,7 @@ export const getFreeSlots = async (req, res, next) => {
 
 export const getClosestAvailableSlot = async (req, res, next) => {
   try {
-    const { staffId, serviceId, date } = req.query;
+    const { staffId, serviceId, date, locationId } = req.query;
     if (!staffId || !serviceId) {
       return res.status(400).json({ message: "Missing required parameters." });
     }
@@ -590,7 +590,8 @@ export const getClosestAvailableSlot = async (req, res, next) => {
       const { slots } = await getAvailableSlots(
         staffId,
         searchDate, 
-        serviceDuration
+        serviceDuration,
+        locationId
       );
 
       // Filter today's slots to only future times (in Sofia timezone)

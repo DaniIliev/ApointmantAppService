@@ -65,7 +65,7 @@ const userSchema = new mongoose.Schema(
     mustChangePassword: { type: Boolean, default: false },
     otpCode: { type: String, required: false },
     otpExpiresAt: { type: Date, required: false },
-    locationId: { type: mongoose.Schema.Types.ObjectId, ref: "Location" },
+    locationIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Location" }],
   },
   { timestamps: true }
 );

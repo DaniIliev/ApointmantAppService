@@ -266,15 +266,14 @@ class Chatbot {
 
           if (foundService) {
             currentState.service = foundService;
-            const serviceStaffs = Array.isArray(foundService.staffs)
-              ? foundService.staffs
+            const serviceStaffs = Array.isArray(foundService.staffMembers)
+              ? foundService.staffMembers
               : [];
             if (serviceStaffs.length === 0) {
               this.conversationState[userId] = {};
               return `За услугата "${foundService.name}" няма налични служители в момента. Моля, изберете друга услуга.`;
             }
             const staffIds = serviceStaffs
-              .map((s) => s?._id)
               .filter((id) => mongoose.Types.ObjectId.isValid(id));
             if (staffIds.length === 0) {
               this.conversationState[userId] = {};
@@ -333,11 +332,10 @@ class Chatbot {
 
         // Step 2: Ask for staff
         if (currentState.service && !currentState.staff) {
-          const serviceStaffs2 = Array.isArray(currentState.service.staffs)
-            ? currentState.service.staffs
+          const serviceStaffs2 = Array.isArray(currentState.service.staffMembers)
+            ? currentState.service.staffMembers
             : [];
           const staffIds = serviceStaffs2
-            .map((s) => s?._id)
             .filter((id) => mongoose.Types.ObjectId.isValid(id));
           if (staffIds.length === 0) {
             this.conversationState[userId] = {};
@@ -646,10 +644,10 @@ class Chatbot {
           const allStaffIds = new Set();
 
           services.forEach((service) => {
-            if (Array.isArray(service.staffs)) {
-              service.staffs.forEach((staff) => {
-                if (staff && staff._id) {
-                  allStaffIds.add(String(staff._id));
+            if (Array.isArray(service.staffMembers)) {
+              service.staffMembers.forEach((staffId) => {
+                if (staffId) {
+                  allStaffIds.add(String(staffId));
                 }
               });
             }
@@ -682,10 +680,10 @@ class Chatbot {
               const durations = [];
               services.forEach((svc) => {
                 if (
-                  Array.isArray(svc.staffs) &&
-                  svc.staffs.some(
-                    (st) =>
-                      st && st._id && String(st._id) === String(chosen._id)
+                  Array.isArray(svc.staffMembers) &&
+                  svc.staffMembers.some(
+                    (stId) =>
+                      stId && String(stId) === String(chosen._id)
                   )
                 ) {
                   durations.push(svc.duration);
