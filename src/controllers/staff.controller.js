@@ -218,6 +218,69 @@ export const removeStaff = async (req, res, next) => {
   }
 };
 
+export const updateStaff = async (req, res, next) => {
+  try {
+    const ownerId = req.user.id;
+    const { id: staffId } = req.params;
+    const { firstName, lastName, email, phone, role, locationIds } = req.body;
+
+    const business = await Business.findOne({ owner: ownerId });
+    if (!business) {
+      return res.status(403).json({
+        message: "Само собственици могат да редактират служители.",
+      });
+    }
+
+    const staff = await User.findById(staffId);
+    if (!staff || String(staff.businessId) !== String(business._id)) {
+      return res
+        .status(404)
+        .json({ message: "Служителят не е намерен за този бизнес." });
+    }
+
+    // Identify newly added locations to clone schedules
+    const oldLocationIds = staff.locationIds || [];
+    const newLocationIds = (locationIds || []).filter(
+      (id) => !oldLocationIds.includes(String(id))
+    );
+
+    // Update fields
+    if (firstName) staff.firstName = firstName;
+    if (lastName) staff.lastName = lastName;
+    if (phone) staff.phone = phone;
+    if (role) staff.role = role;
+    if (locationIds) staff.locationIds = locationIds;
+
+    // Handle email change separately if needed (consistent with updateStaffEmail logic if desired)
+    if (email && email !== staff.email) {
+      const emailExists = await User.findOne({ email });
+      if (emailExists) {
+        return res.status(409).json({ message: "Имейлът вече се използва." });
+      }
+      staff.email = email;
+    }
+
+    await staff.save();
+
+    // Clone schedules for new locations
+    for (const locId of newLocationIds) {
+      await cloneLocationScheduleToStaff(staff._id, locId, business._id);
+    }
+
+    res.json({
+      _id: staff._id,
+      firstName: staff.firstName,
+      lastName: staff.lastName,
+      email: staff.email,
+      phone: staff.phone,
+      role: staff.role,
+      locationIds: staff.locationIds,
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const updateStaffEmail = async (req, res, next) => {
   try {
     const ownerId = req.user.id;
@@ -307,19 +370,30 @@ export const updateStaffEmail = async (req, res, next) => {
  * Помощна функция за обработка на вече съществуващ потребител (логика за добавяне към локация)
  */
 async function handleExistingStaffUser(user, business, locationId, res) {
-  if (
-    String(user.businessId) === String(business._id) &&
-    user.role === "staff"
-  ) {
-    if (locationId && !user.locationIds.includes(locationId)) {
-      user.locationIds.push(locationId);
+  const isOwner = String(user._id) === String(business.owner);
+  const isSameBusiness = String(user.businessId) === String(business._id);
+  const isUnattached = !user.businessId;
+
+  // Case 1: User belongs to SAME business (Owner or already Staff)
+  if (isSameBusiness || isOwner) {
+    const stringLocationIds = (user.locationIds || []).map((id) => id.toString());
+
+    if (locationId && !stringLocationIds.includes(locationId.toString())) {
+      user.locationIds.push(new mongoose.Types.ObjectId(locationId));
+      user.markModified("locationIds");
+      
+      // If owner is inviting themselves, ensure they have a role that can be scheduled (or just keep as business)
+      // We don't change owner's role to 'staff' because they are 'business'
+      
       await user.save();
 
-      // Автоматично клониране на графика на локацията към служителя
+      // Автоматично клониране на графика на локацията към служителя/собственика
       await cloneLocationScheduleToStaff(user._id, locationId, business._id);
 
       return res.status(200).json({
-        message: "Служителят беше добавен към новата локация.",
+        message: isOwner 
+          ? "Бизнес собственикът беше добавен успешно към локацията." 
+          : "Служителят беше добавен към новата локация.",
         staff: {
           _id: user._id,
           email: user.email,
@@ -331,14 +405,44 @@ async function handleExistingStaffUser(user, business, locationId, res) {
         },
       });
     }
-    return res
-      .status(409)
-      .json({ message: "Този служител вече е добавен към тази локация." });
+    
+    return res.status(409).json({ 
+      message: isOwner 
+        ? "Вече сте добавени към тази локация." 
+        : "Този служител вече е добавен към тази локация." 
+    });
   }
 
-  return res
-    .status(409)
-    .json({ message: "Потребител с този имейл вече съществува в системата." });
+  // Case 2: User exists but has NO business (Personal user)
+  if (isUnattached || user.role === "personal") {
+    user.businessId = business._id;
+    user.role = "staff"; // Convert to staff role
+    user.locationIds = locationId ? [new mongoose.Types.ObjectId(locationId)] : [];
+    user.markModified("locationIds");
+    await user.save();
+
+    if (locationId) {
+      await cloneLocationScheduleToStaff(user._id, locationId, business._id);
+    }
+
+    return res.status(200).json({
+      message: "Потребителят беше добавен като служител към вашия бизнес.",
+      staff: {
+        _id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        role: user.role,
+        locationIds: user.locationIds,
+      },
+    });
+  }
+
+  // Case 3: User belongs to ANOTHER business
+  return res.status(409).json({
+    message: "Този имейл е свързан с друг бизнес профил и не може да бъде добавен.",
+  });
 }
 
 /**

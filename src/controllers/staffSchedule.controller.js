@@ -1,10 +1,8 @@
-// staffScheduleController.js
-
 import StaffSchedule from "../models/StaffSchedule.js";
 import User from "../models/User.js";
 import DailySchedule from "../models/DailySchedule.js";
+import mongoose from 'mongoose';
 
-// Помощна функция за създаване на дневен график по подразбиране
 const createDefaultDailySchedule = async (
   startDate,
   endDate,
@@ -29,6 +27,9 @@ const createDefaultDailySchedule = async (
   if (break3 && break3.start && break3.end) {
     breaks.push({ start: break3.start, end: break3.end });
   }
+
+  // Sort breaks chronologically to avoid issues with out-of-order entry
+  breaks.sort((a, b) => a.start.localeCompare(b.start));
 
   // Обхожда всички дни в периода
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -67,32 +68,46 @@ const createDefaultDailySchedule = async (
 // --- GET /api/staff-schedules ---
 export const getSchedules = async (req, res, next) => {
   try {
-    const { locationId, staffId } = req.query;
-    const userId = req.user.id;
-    const userRole = req.user.role;
-
+    const { staffId } = req.query;
+    // Query parameter takes precedence over header, allowing bypass with ?locationId=null
+    const locationId = req.query.locationId !== undefined ? req.query.locationId : req.headers["x-location-id"];
+    const userId = req.user?.id || req.user?._id;
+    const userRole = req.user?.role;
+    
+    if (!userId) {
+      return res.status(401).json({ message: "Невалидна аутентикация." });
+    }
     const filter = {};
     
     // Always filter by the user's business
     const requestUser = await User.findById(userId);
     if (!requestUser || !requestUser.businessId) {
-      return res.status(400).json({ message: "User is not associated with a business." });
+      return res.status(400).json({ message: "Потребителят не е свързан с бизнес." });
     }
-    filter.business = requestUser.businessId;
+    // Ensure we have a valid ObjectId for business
+    const bizIdStr = requestUser.businessId?.toString() || requestUser._id?.toString();
+    filter.business = new mongoose.Types.ObjectId(bizIdStr);
     
-    // If user is a business owner, they might want to see all schedules for a location
+    // Safety check for locationId/staffId to avoid filtering by "undefined", "null" or empty strings
+    const isExplicitExclude = (locationId === "null" || locationId === "none" || locationId === "all");
+    const effectiveLocationId = (locationId && !isExplicitExclude && String(locationId) !== "undefined" && String(locationId) !== "") ? locationId : null;
+    const effectiveStaffId = (staffId && String(staffId) !== "undefined" && String(staffId) !== "") ? staffId : null;
+
     if (userRole === "business") {
-      if (locationId) filter.location = locationId;
-      if (staffId) filter.staff = (staffId === "null" || staffId === null) ? null : staffId;
+      if (effectiveLocationId) filter.location = effectiveLocationId;
+      if (effectiveStaffId) {
+          filter.staff = (effectiveStaffId === "null" || effectiveStaffId === null) ? null : effectiveStaffId;
+      }
     } else {
-      // Staff members only see their own schedules
       filter.staff = userId;
-      if (locationId) filter.location = locationId;
+      if (effectiveLocationId) filter.location = effectiveLocationId;
     }
 
-    const schedules = await StaffSchedule.find(filter).sort({
-      startDate: -1,
-    });
+    const schedules = await StaffSchedule.find(filter)
+      .populate("staff", "firstName lastName email")
+      .sort({
+        startDate: -1,
+      });
     res.status(200).json(schedules);
   } catch (e) {
     next(e);
@@ -105,7 +120,7 @@ export const getSchedules = async (req, res, next) => {
 export const getDailySchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
 
     const schedule = await StaffSchedule.findById(id).populate("dailySchedule");
     if (!schedule) {
@@ -130,7 +145,7 @@ export const getDailySchedule = async (req, res, next) => {
 // --- POST /api/staff-schedules ---
 export const createSchedule = async (req, res, next) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
     const { 
       startDate, 
       endDate, 
@@ -205,8 +220,8 @@ export const createSchedule = async (req, res, next) => {
 export const updateSchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
-    const userRole = req.user.role;
+    const userId = req.user?.id || req.user?._id;
+    const userRole = req.user?.role;
     const updateData = req.body;
 
     const currentSchedule = await StaffSchedule.findById(id);
@@ -283,7 +298,7 @@ export const updateSchedule = async (req, res, next) => {
 export const updateDailySchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
     const { workHours } = req.body;
 
     const schedule = await StaffSchedule.findById(id);
@@ -315,7 +330,7 @@ export const updateDailySchedule = async (req, res, next) => {
 export const applyScheduleToAllStaff = async (req, res, next) => {
   try {
     const { scheduleId } = req.body;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
 
     const mainSchedule = await StaffSchedule.findById(scheduleId);
     if (!mainSchedule) {
@@ -395,7 +410,7 @@ export const applyScheduleToAllStaff = async (req, res, next) => {
 export const deleteSchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
 
     const currentSchedule = await StaffSchedule.findById(id);
     if (!currentSchedule) {

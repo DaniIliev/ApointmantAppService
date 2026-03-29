@@ -153,7 +153,7 @@ export const getUserById = async (req, res, next) => {
       locations,
     });
   } catch (error) {
-    next(e);
+    next(error);
   }
 };
 
@@ -188,10 +188,17 @@ export const updateUser = async (req, res, next) => {
       email: updatedUser.email,
       firstName: updatedUser.firstName,
       lastName: updatedUser.lastName,
-      phone: updatedUser.phone,
+      role: updatedUser.role,
+      businessId: updatedUser.businessId,
       primaryColor: updatedUser.primaryColor,
       theme: updatedUser.theme,
+      mustChangePassword: updatedUser.mustChangePassword,
       profilePictureUrl: updatedUser.profilePictureUrl,
+      subscriptionPlan: updatedUser.subscriptionPlan,
+      subscriptionStatus: updatedUser.subscriptionStatus,
+      subscriptionBusinessId: updatedUser.subscriptionBusinessId,
+      subscriptionActivatedAt: updatedUser.subscriptionActivatedAt,
+      subscriptionCurrentPeriodEnd: updatedUser.subscriptionCurrentPeriodEnd,
     });
   } catch (e) {
     next(e);
@@ -211,7 +218,7 @@ export const updateRole = async (req, res, next) => {
     user.role = role;
     await user.save();
 
-    res.json({ message: "Ролята е обновена успешно", role: user.role });
+    res.json({ message: "Ролята е обновена успешно", user: user });
   } catch (e) {
     next(e);
   }
@@ -250,7 +257,7 @@ export const updateProfilePicture = async (req, res, next) => {
 };
 export const refreshToken = async (req, res, next) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
