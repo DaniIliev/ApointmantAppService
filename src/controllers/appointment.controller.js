@@ -102,6 +102,7 @@ export const createAppointment = async (req, res, next) => {
       email,
       staff,
       locationId,
+      notes
     } = req.body;
 
     const biz = await Business.findById(business);
@@ -124,11 +125,14 @@ export const createAppointment = async (req, res, next) => {
     const appointmentDateOnly = moment
       .tz(dateTime, APP_TIMEZONE)
       .format("YYYY-MM-DD");
+    const finalLocationId = locationId || srv.locationId;
+
     const availability = await getAvailableSlots(
       staff,
       appointmentDateOnly,
       srv.duration,
-      locationId
+      finalLocationId,
+      service
     );
     console.log("Availability:", availability);
     const requestedSlot = moment.tz(dateTime, APP_TIMEZONE).format("HH:mm");
@@ -162,7 +166,8 @@ export const createAppointment = async (req, res, next) => {
       clientPhone,
       email,
       staff,
-      locationId,
+      locationId: finalLocationId,
+      notes,
     });
 
     const newAlert = await Alert.create({
@@ -426,11 +431,14 @@ export const updateAppointment = async (req, res, next) => {
 
     if (isTimeChanged || isStaffChanged) {
       // Validate new slot availability
+      const finalLocationId = newLocation || appt.locationId || srv.locationId;
+
       const availability = await getAvailableSlots(
         newStaff,
         newDateTime,
         srv.duration,
-        appt.locationId
+        finalLocationId,
+        srv._id
       );
       const requestedSlot = moment(newDateTime).format("HH:mm");
       const isSlotAvailable = availability.slots.some(
@@ -523,11 +531,14 @@ export const getFreeSlots = async (req, res, next) => {
     }
     const serviceDuration = service.duration;
 
+    const finalLocationId = locationId || service.locationId;
+
     const { slots, message } = await getAvailableSlots(
       staffId,
       date,
       serviceDuration,
-      locationId
+      finalLocationId,
+      serviceId
     );
     if (slots.length === 0) {
       return res.status(200).json({ slots: [], message: message });
@@ -587,11 +598,13 @@ export const getClosestAvailableSlot = async (req, res, next) => {
         .add(i, "days");
       const searchDate = searchDateMoment.format("YYYY-MM-DD"); // Формат за търсене в бекенда
       console.log("test");
+      const finalLocationId = locationId || service.locationId;
       const { slots } = await getAvailableSlots(
         staffId,
         searchDate, 
         serviceDuration,
-        locationId
+        finalLocationId,
+        serviceId
       );
 
       // Filter today's slots to only future times (in Sofia timezone)

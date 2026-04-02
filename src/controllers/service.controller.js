@@ -13,7 +13,9 @@ export const createService = async (req, res, next) => {
       staffMembers,
       category,
       paymentOption,
-      locationId
+      locationId,
+      isGroup,
+      capacity,
     } = req.body;
     const imageUrl = req.file ? req.file.path : undefined;
     let parsedStaffIds = staffMembers;
@@ -60,6 +62,8 @@ export const createService = async (req, res, next) => {
       staffMembers: parsedStaffIds,
       paymentOption: paymentOption || "cash",
       locationId,
+      isGroup: isGroup === "true" || isGroup === true,
+      capacity: Number(capacity) || 1,
     });
 
     res.status(201).json(service);
@@ -73,7 +77,9 @@ export const listServices = async (req, res, next) => {
     const { businessId, locationId } = req.query;
     const headerLocationId = req.headers["x-location-id"];
     const effectiveLocationId = locationId || headerLocationId;
-
+    console.log('locationId', locationId);
+    console.log('headerLocationId', headerLocationId);
+    console.log('effectiveLocationId', effectiveLocationId);
     const filter = { business: businessId };
     if (effectiveLocationId) filter.locationId = effectiveLocationId;
     const services = await Service.find(filter).populate("staffMembers").lean();
@@ -95,6 +101,8 @@ export const updateService = async (req, res, next) => {
       category,
       staffMembers,
       paymentOption,
+      isGroup,
+      capacity,
     } = req.body;
     const imageUrl = req.file?.path;
     const serviceToUpdate = await Service.findById(serviceId);
@@ -121,6 +129,13 @@ export const updateService = async (req, res, next) => {
     serviceToUpdate.category = category || serviceToUpdate.category;
     serviceToUpdate.paymentOption =
       paymentOption || serviceToUpdate.paymentOption;
+
+    if (isGroup !== undefined) {
+      serviceToUpdate.isGroup = isGroup === "true" || isGroup === true;
+    }
+    if (capacity !== undefined) {
+      serviceToUpdate.capacity = Number(capacity) || 1;
+    }
 
     if (staffMembers) {
       let parsedStaffIds = staffMembers;

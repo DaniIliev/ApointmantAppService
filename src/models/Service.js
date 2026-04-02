@@ -30,7 +30,16 @@ const serviceSchema = new mongoose.Schema(
       ref: "Location",
       required: false,
     },
+    isGroup: {
+      type: Boolean,
+      default: false,
+    },
+    capacity: {
+      type: Number,
+      default: 1,
+    },
   },
+
   { timestamps: true }
 );
 
