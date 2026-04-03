@@ -3,20 +3,23 @@ import PushSubscription from '../models/PushSubscription.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
-// Configure web-push
-const vapidDetails = {
-  publicKey: process.env.VAPID_PUBLIC_KEY,
-  privateKey: process.env.VAPID_PRIVATE_KEY,
-  subject: process.env.VAPID_EMAIL || 'mailto:admin@appointdi.com'
+// Helper to initialize web-push only after environment is loaded
+const initWebPush = () => {
+  const publicKey = process.env.VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const subject = process.env.VAPID_EMAIL || 'mailto:admin@appointdi.com';
+
+  if (!publicKey || !privateKey) {
+    console.error('VAPID keys not found in environment');
+    return false;
+  }
+
+  webpush.setVapidDetails(subject, publicKey, privateKey);
+  return true;
 };
 
-webpush.setVapidDetails(
-  vapidDetails.subject,
-  vapidDetails.publicKey,
-  vapidDetails.privateKey
-);
-
 export const subscribe = async (req, res) => {
+  initWebPush();
   try {
     const { subscription, deviceType } = req.body;
     const userId = req.user.id;
@@ -40,10 +43,12 @@ export const subscribe = async (req, res) => {
 };
 
 export const getVapidPublicKey = (req, res) => {
+  initWebPush();
   res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
 };
 
 export const sendNotification = async (req, res) => {
+  initWebPush();
   try {
     const { userId, title, body, url } = req.body;
 
