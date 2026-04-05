@@ -17,7 +17,7 @@ export const createService = async (req, res, next) => {
       isGroup,
       capacity,
     } = req.body;
-    const imageUrl = req.file ? req.file.path : undefined;
+    const imageUrl = req.file ? req.file.path : req.body.imageUrl;
     let parsedStaffIds = staffMembers;
     if (staffMembers && typeof staffMembers === "string") {
       try {
@@ -33,9 +33,11 @@ export const createService = async (req, res, next) => {
         parsedStaffIds = [];
       }
     }
-    
+
     // Ensure we only have IDs (if objects like {_id: ...} were sent)
-    parsedStaffIds = parsedStaffIds.map(item => (typeof item === 'object' ? item._id : item)).filter(Boolean);
+    parsedStaffIds = parsedStaffIds
+      .map((item) => (typeof item === "object" ? item._id : item))
+      .filter(Boolean);
 
     let businessId = req.user.businessId;
 
@@ -77,9 +79,9 @@ export const listServices = async (req, res, next) => {
     const { businessId, locationId } = req.query;
     const headerLocationId = req.headers["x-location-id"];
     const effectiveLocationId = locationId || headerLocationId;
-    console.log('locationId', locationId);
-    console.log('headerLocationId', headerLocationId);
-    console.log('effectiveLocationId', effectiveLocationId);
+    console.log("locationId", locationId);
+    console.log("headerLocationId", headerLocationId);
+    console.log("effectiveLocationId", effectiveLocationId);
     const filter = { business: businessId };
     if (effectiveLocationId) filter.locationId = effectiveLocationId;
     const services = await Service.find(filter).populate("staffMembers").lean();
@@ -101,10 +103,11 @@ export const updateService = async (req, res, next) => {
       category,
       staffMembers,
       paymentOption,
+      locationId,
       isGroup,
       capacity,
     } = req.body;
-    const imageUrl = req.file?.path;
+    const imageUrl = req.file?.path || req.body.imageUrl;
     const serviceToUpdate = await Service.findById(serviceId);
     if (!serviceToUpdate) {
       return res.status(404).json({ message: "Услугата не е намерена." });
@@ -136,6 +139,9 @@ export const updateService = async (req, res, next) => {
     if (capacity !== undefined) {
       serviceToUpdate.capacity = Number(capacity) || 1;
     }
+    if (locationId !== undefined) {
+      serviceToUpdate.locationId = locationId || null;
+    }
 
     if (staffMembers) {
       let parsedStaffIds = staffMembers;
@@ -147,7 +153,10 @@ export const updateService = async (req, res, next) => {
         }
       }
       if (!Array.isArray(parsedStaffIds)) {
-        if (typeof parsedStaffIds === "string" && parsedStaffIds.length === 24) {
+        if (
+          typeof parsedStaffIds === "string" &&
+          parsedStaffIds.length === 24
+        ) {
           parsedStaffIds = [parsedStaffIds];
         } else {
           parsedStaffIds = [];
@@ -159,7 +168,7 @@ export const updateService = async (req, res, next) => {
         .filter(Boolean);
     }
 
-    if (imageUrl) {
+    if (imageUrl !== undefined) {
       serviceToUpdate.imageUrl = imageUrl;
     }
 
@@ -202,9 +211,8 @@ export const assignStaffToService = async (req, res, next) => {
     const { serviceId } = req.params;
     const { staffIds } = req.body; // Очакваме масив от ID-та на служители
 
-    const serviceToUpdate = await Service.findById(serviceId).populate(
-      "business"
-    );
+    const serviceToUpdate =
+      await Service.findById(serviceId).populate("business");
     if (!serviceToUpdate) {
       return res.status(404).json({ message: "Услугата не е намерена." });
     }
@@ -224,7 +232,7 @@ export const assignStaffToService = async (req, res, next) => {
     const businessStaffIds = businessStaff.map((staff) => String(staff._id));
 
     const areAllStaffValid = staffIds.every((id) =>
-      businessStaffIds.includes(id)
+      businessStaffIds.includes(id),
     );
 
     if (!areAllStaffValid) {
