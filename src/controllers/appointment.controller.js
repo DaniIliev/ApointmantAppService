@@ -31,6 +31,57 @@ const generateTemporaryPassword = () => {
   return password;
 };
 
+const serializeAppointment = (appointment) => {
+  const start = appointment.appointmentTime?.start;
+  const end = appointment.appointmentTime?.end;
+  const isWorkBlock = appointment.kind === "work_block";
+  const fallbackDuration =
+    start && end ? moment(end).diff(moment(start), "minutes") : undefined;
+  const serviceName = isWorkBlock
+    ? appointment.clientName ||
+      appointment.title ||
+      appointment.notes ||
+      "Работен ангажимент"
+    : appointment.service?.name ||
+      appointment.title ||
+      appointment.notes ||
+      "Appointment";
+
+  return {
+    _id: appointment._id,
+    businessId:
+      appointment.business?._id ||
+      appointment.business ||
+      appointment.businessId,
+    serviceName,
+    servicePrice: isWorkBlock ? undefined : appointment.service?.price,
+    serviceDuration: isWorkBlock
+      ? fallbackDuration
+      : (appointment.service?.duration ?? fallbackDuration),
+    clientName: appointment.clientName || appointment.title || "",
+    clientPhone: appointment.clientPhone || "",
+    email: appointment.email || "",
+    appointmentTime: {
+      start,
+      end,
+    },
+    status: appointment.status,
+    kind: appointment.kind || "appointment",
+    title: appointment.title || "",
+    notes: appointment.notes,
+    service_id: appointment.service?._id || appointment.service || null,
+    staff_id: appointment.staff,
+    staff: {
+      _id: appointment.staff,
+    },
+    paymentStatus: appointment.paymentStatus,
+    stripePaymentIntentId: appointment.stripePaymentIntentId,
+    stripePaymentMethodId: appointment.stripePaymentMethodId,
+    stripePaymentAmount: appointment.stripePaymentAmount,
+    locationId: appointment.locationId,
+  };
+};
+
 export const getDashboardData = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -50,35 +101,12 @@ export const getDashboardData = async (req, res) => {
     }
 
     const appointments = await Appointment.find(filter).populate(
-      "business service client"
+      "business service client",
     );
 
-    const transformedAppointments = appointments.map((appointment) => {
-      return {
-        _id: appointment._id,
-        businessId: appointment.business._id,
-        serviceName: appointment.service.name,
-        servicePrice: appointment.service.price,
-        serviceDuration: appointment.service.duration,
-        clientName: appointment.clientName,
-        clientPhone: appointment.clientPhone,
-        email: appointment.email,
-        appointmentTime: {
-          start: appointment.appointmentTime.start,
-          end: appointment.appointmentTime.end,
-        },
-        status: appointment.status,
-        service_id: appointment.service._id,
-        staff_id: appointment.staff,
-        staff: {
-          _id: appointment.staff,
-        },
-        paymentStatus: appointment.paymentStatus,
-        stripePaymentIntentId: appointment.stripePaymentIntentId,
-        stripePaymentMethodId: appointment.stripePaymentMethodId,
-        stripePaymentAmount: appointment.stripePaymentAmount,
-      };
-    });
+    const transformedAppointments = appointments.map((appointment) =>
+      serializeAppointment(appointment),
+    );
     transformedAppointments.sort((a, b) => {
       const startTimeA = new Date(a.appointmentTime.start).getTime();
       const startTimeB = new Date(b.appointmentTime.start).getTime();
@@ -88,6 +116,83 @@ export const getDashboardData = async (req, res) => {
     res.json(transformedAppointments);
   } catch (error) {
     res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const createWorkBlockAppointment = async (req, res, next) => {
+  try {
+    const {
+      business,
+      staff,
+      dateTime,
+      durationMinutes,
+      title,
+      notes,
+      locationId,
+    } = req.body;
+
+    if (!business || !staff || !dateTime || !durationMinutes) {
+      return res.status(400).json({
+        message: "Business, staff, dateTime and durationMinutes are required.",
+      });
+    }
+
+    if (!req.user || !["business", "staff"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Нямате достъп." });
+    }
+
+    const biz = await Business.findById(business);
+    if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
+
+    if (req.user.role === "business") {
+      if (String(biz.owner) !== String(req.user.id)) {
+        return res.status(403).json({ message: "Не сте собственик" });
+      }
+    } else if (String(req.user.businessId) !== String(biz._id)) {
+      return res
+        .status(403)
+        .json({ message: "Не сте служител на този бизнес" });
+    }
+
+    const staffUser = await User.findById(staff);
+    if (!staffUser || String(staffUser.businessId) !== String(biz._id)) {
+      return res.status(400).json({ message: "Невалиден служител" });
+    }
+
+    const blockTitle = title?.trim() || "Работен ангажимент";
+    const startDateTime = moment.tz(dateTime, APP_TIMEZONE).toDate();
+    const endDateTime = moment
+      .tz(dateTime, APP_TIMEZONE)
+      .add(Number(durationMinutes), "minutes")
+      .toDate();
+
+    const appointment = await Appointment.create({
+      business,
+      service: undefined,
+      kind: "work_block",
+      title: blockTitle,
+      appointmentTime: {
+        start: startDateTime,
+        end: endDateTime,
+      },
+      status: "blocked",
+      paymentStatus: "not_required",
+      client: undefined,
+      clientName: blockTitle,
+      clientPhone: "",
+      email: "",
+      staff,
+      locationId,
+      notes,
+    });
+
+    const populated = await Appointment.findById(appointment._id)
+      .populate("business service client")
+      .populate("staff", "firstName lastName email");
+
+    res.status(201).json(serializeAppointment(populated));
+  } catch (e) {
+    next(e);
   }
 };
 
@@ -102,7 +207,7 @@ export const createAppointment = async (req, res, next) => {
       email,
       staff,
       locationId,
-      notes
+      notes,
     } = req.body;
 
     const biz = await Business.findById(business);
@@ -132,12 +237,12 @@ export const createAppointment = async (req, res, next) => {
       appointmentDateOnly,
       srv.duration,
       finalLocationId,
-      service
+      service,
     );
     console.log("Availability:", availability);
     const requestedSlot = moment.tz(dateTime, APP_TIMEZONE).format("HH:mm");
     const isSlotAvailable = availability.slots.some(
-      (slot) => slot.startTime === requestedSlot
+      (slot) => slot.startTime === requestedSlot,
     );
 
     if (!isSlotAvailable) {
@@ -211,7 +316,7 @@ export const createAppointment = async (req, res, next) => {
         startDateTime,
         endDateTime,
         biz.businessName,
-        dashboardLink
+        dashboardLink,
       );
     } else {
       // Send email with appointment details and cancel link
@@ -223,7 +328,7 @@ export const createAppointment = async (req, res, next) => {
         endDateTime,
         biz.businessName,
         dashboardLink,
-        appointment._id
+        appointment._id,
       );
     }
     io.to(staff).emit("newAppointment", {
@@ -265,7 +370,7 @@ export const listBusinessAppointments = async (req, res, next) => {
       .sort({ appointmentTime: 1 })
       .lean();
 
-    res.json(items);
+    res.json(items.map((item) => serializeAppointment(item)));
   } catch (e) {
     next(e);
   }
@@ -304,7 +409,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
           const pi = await stripe.paymentIntents.capture(
             appt.stripePaymentIntentId,
             {},
-            { stripeAccount: appt.business.stripeConnectAccountId }
+            { stripeAccount: appt.business.stripeConnectAccountId },
           );
           appt.paymentStatus = "captured";
           appt.stripePaymentMethodId = pi.payment_method;
@@ -317,7 +422,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
               appt.service.name,
               appt.business.businessName,
               pi.amount_received,
-              pi.currency || "eur"
+              pi.currency || "eur",
             );
           }
         }
@@ -327,14 +432,14 @@ export const updateAppointmentStatus = async (req, res, next) => {
           await stripe.paymentIntents.cancel(
             appt.stripePaymentIntentId,
             {},
-            { stripeAccount: appt.business.stripeConnectAccountId }
+            { stripeAccount: appt.business.stripeConnectAccountId },
           );
           appt.paymentStatus = "cancelled";
         } else if (appt.paymentStatus === "captured") {
           // Refund captured funds
           const refund = await stripe.refunds.create(
             { payment_intent: appt.stripePaymentIntentId },
-            { stripeAccount: appt.business.stripeConnectAccountId }
+            { stripeAccount: appt.business.stripeConnectAccountId },
           );
           appt.paymentStatus = "refunded";
           // Notify client refund issued
@@ -347,7 +452,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
               refund.amount ||
                 appt.stripePaymentAmount ||
                 Math.round(appt.service.price * 100),
-              refund.currency || "eur"
+              refund.currency || "eur",
             );
           }
         }
@@ -366,7 +471,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
         appt.business.businessName,
         `${process.env.CLIENT_URL}/dashboard`,
         null,
-        appt._id
+        appt._id,
       );
     }
 
@@ -378,7 +483,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
         appt.appointmentTime.start,
         appt.appointmentTime.end,
         appt.business.businessName,
-        `${process.env.CLIENT_URL}/dashboard`
+        `${process.env.CLIENT_URL}/dashboard`,
       );
     }
 
@@ -438,11 +543,11 @@ export const updateAppointment = async (req, res, next) => {
         newDateTime,
         srv.duration,
         finalLocationId,
-        srv._id
+        srv._id,
       );
       const requestedSlot = moment(newDateTime).format("HH:mm");
       const isSlotAvailable = availability.slots.some(
-        (slot) => slot.startTime === requestedSlot
+        (slot) => slot.startTime === requestedSlot,
       );
 
       if (!isSlotAvailable) {
@@ -538,7 +643,7 @@ export const getFreeSlots = async (req, res, next) => {
       date,
       serviceDuration,
       finalLocationId,
-      serviceId
+      serviceId,
     );
     if (slots.length === 0) {
       return res.status(200).json({ slots: [], message: message });
@@ -573,7 +678,7 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     // Log server timezone context for debugging
     console.log(
       "Current server time (Sofia):",
-      moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z")
+      moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm:ss Z"),
     );
 
     let closestSlot = null;
@@ -586,7 +691,7 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     const startFromMoment = date
       ? moment.tz(
           moment(date, ["YYYY-MM-DD", "DD.MM.YYYY"]).format("YYYY-MM-DD"),
-          APP_TIMEZONE
+          APP_TIMEZONE,
         )
       : moment.tz(APP_TIMEZONE).startOf("day");
 
@@ -601,10 +706,10 @@ export const getClosestAvailableSlot = async (req, res, next) => {
       const finalLocationId = locationId || service.locationId;
       const { slots } = await getAvailableSlots(
         staffId,
-        searchDate, 
+        searchDate,
         serviceDuration,
         finalLocationId,
-        serviceId
+        serviceId,
       );
 
       // Filter today's slots to only future times (in Sofia timezone)
@@ -615,13 +720,13 @@ export const getClosestAvailableSlot = async (req, res, next) => {
               const slotDateTime = moment.tz(
                 `${searchDate}T${slot.startTime}`,
                 "YYYY-MM-DDTHH:mm",
-                APP_TIMEZONE
+                APP_TIMEZONE,
               );
               const isAfterNow = slotDateTime.isAfter(now);
               console.log(
                 `Slot ${slot.startTime}: isAfter(now=${now.format(
-                  "HH:mm"
-                )}) = ${isAfterNow}`
+                  "HH:mm",
+                )}) = ${isAfterNow}`,
               );
               return isAfterNow;
             })
@@ -668,7 +773,7 @@ export const getAppointmentById = async (req, res, next) => {
       return res.status(404).json({ message: "Appointment не е намерен" });
     }
 
-    res.json(appointment);
+    res.json(serializeAppointment(appointment));
   } catch (e) {
     next(e);
   }

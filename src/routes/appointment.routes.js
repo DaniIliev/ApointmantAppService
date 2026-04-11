@@ -2,6 +2,7 @@ import express from "express";
 import {
   getDashboardData,
   createAppointment,
+  createWorkBlockAppointment,
   listBusinessAppointments,
   updateAppointmentStatus,
   updateAppointment,
@@ -15,6 +16,7 @@ const router = express.Router();
 
 router.get("/dashboard", authMiddleware, getDashboardData);
 router.post("/", createAppointment);
+router.post("/work-block", authMiddleware, createWorkBlockAppointment);
 router.get("/business/:businessId", authMiddleware, listBusinessAppointments);
 router.get("/availability", getFreeSlots);
 router.get("/closest-slot", getClosestAvailableSlot);

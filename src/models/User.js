@@ -31,7 +31,7 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, required: false },
     role: {
       type: String,
-      enum: ["business", "personal", "staff", "admin"],
+      enum: ["business", "personal", "staff", "admin", "manager"],
       // required: true,
     },
     businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
@@ -67,7 +67,7 @@ const userSchema = new mongoose.Schema(
     otpExpiresAt: { type: Date, required: false },
     locationIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Location" }],
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export default mongoose.model("User", userSchema);
