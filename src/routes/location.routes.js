@@ -19,12 +19,29 @@ router.get("/", getLocations);
 router.get("/:id", getLocationById);
 
 // POST /api/locations
-router.post("/", authRequired, upload.single("imageUrl"), createLocation);
+router.post(
+  "/",
+  authRequired,
+  requireRole("business", "manager"),
+  upload.single("imageUrl"),
+  createLocation,
+);
 
 // PUT /api/locations/:id
-router.put("/:id", authRequired, requireRole("business"), upload.single("imageUrl"), updateLocation);
+router.put(
+  "/:id",
+  authRequired,
+  requireRole("business", "manager"),
+  upload.single("imageUrl"),
+  updateLocation,
+);
 
 // DELETE /api/locations/:id
-router.delete("/:id", authRequired, requireRole("business"), deleteLocation);
+router.delete(
+  "/:id",
+  authRequired,
+  requireRole("business", "manager"),
+  deleteLocation,
+);
 
 export default router;

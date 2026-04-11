@@ -21,15 +21,20 @@ router.get("/options", getBusinessOptions);
 router.get("/:id", getBusinessById);
 
 // POST /api/business - Създаване на бизнес (само за оторизирани потребители)
-router.post("/", authRequired, upload.single("businessImageUrl"), createBusiness);
+router.post(
+  "/",
+  authRequired,
+  upload.single("businessImageUrl"),
+  createBusiness,
+);
 
 // PUT/PATCH /api/business/:id - Актуализация на бизнес
 router.put(
   "/:id",
   authMiddleware,
-  requireRole("business"),
+  requireRole("business", "manager"),
   upload.single("businessImageUrl"),
-  updateBusiness
+  updateBusiness,
 );
 
 export default router;

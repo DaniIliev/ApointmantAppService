@@ -86,10 +86,27 @@ export const updateBusiness = async (req, res, next) => {
         businessImageUrl: newImageUrl,
       };
     }
+    let filter = null;
+    if (req.user.role === "business") {
+      filter = { _id: businessId, owner: req.user.id };
+    } else if (req.user.role === "manager") {
+      if (
+        !req.user.businessId ||
+        String(req.user.businessId) !== String(businessId)
+      ) {
+        return res.status(403).json({ message: "Нямате права за този бизнес" });
+      }
+      filter = { _id: businessId };
+    }
+
+    if (!filter) {
+      return res.status(403).json({ message: "Нямате права за тази операция" });
+    }
+
     const business = await Business.findOneAndUpdate(
-      { _id: businessId, owner: req.user.id },
+      filter,
       { $set: data },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     ).lean();
 
     if (!business) {
@@ -121,7 +138,7 @@ export const getBusinessById = async (req, res, next) => {
     if (!business) {
       return res.status(404).json({ message: "Business не е намерен" });
     }
-    
+
     res.json(business);
   } catch (e) {
     next(e);
