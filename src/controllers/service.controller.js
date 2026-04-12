@@ -84,7 +84,12 @@ export const listServices = async (req, res, next) => {
     console.log("effectiveLocationId", effectiveLocationId);
     const filter = { business: businessId };
     if (effectiveLocationId) filter.locationId = effectiveLocationId;
-    const services = await Service.find(filter).populate("staffMembers").lean();
+    const services = await Service.find(filter)
+      .populate({
+        path: "staffMembers",
+        select: "firstName lastName profilePictureUrl",
+      })
+      .lean();
     res.json(services);
   } catch (e) {
     next(e);
@@ -257,7 +262,7 @@ export const listStaffForService = async (req, res, next) => {
 
     const service = await Service.findById(serviceId).populate({
       path: "staffMembers",
-      select: "firstName lastName",
+      select: "firstName lastName imageUrl",
     });
 
     if (!service) {
