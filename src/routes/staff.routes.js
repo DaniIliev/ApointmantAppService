@@ -6,6 +6,7 @@ import {
   removeStaff,
   updateStaffEmail,
   updateStaff,
+  rateStaff,
 } from "../controllers/staff.controller.js";
 import authMiddleware from "../middlewares/auth.js";
 
@@ -17,6 +18,7 @@ router.post("/by-ids", getStaffByIds);
 router.delete("/:id", authMiddleware, removeStaff);
 router.put("/:id", authMiddleware, updateStaff);
 router.patch("/:id/email", authMiddleware, updateStaffEmail);
+router.put("/:id/rating", rateStaff);
 // router.post("/", authMiddleware, getAllStaff
 
 export default router;

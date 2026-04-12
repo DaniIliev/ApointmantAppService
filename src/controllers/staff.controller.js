@@ -64,7 +64,7 @@ export const listBusinessStaff = async (req, res, next) => {
     }
 
     const staffMembers = await User.find(filter).select(
-      "firstName lastName email phone role _id profilePictureUrl locationIds",
+      "firstName lastName email phone role _id profilePictureUrl locationIds rating ratingCount",
     );
     res.json(staffMembers);
   } catch (e) {
@@ -433,6 +433,45 @@ export const updateStaffEmail = async (req, res, next) => {
         phone: newStaff.phone,
         role: newStaff.role,
       },
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const rateStaff = async (req, res, next) => {
+  try {
+    const { id: staffId } = req.params;
+    const rawRating = Number(req.body?.rating);
+
+    if (!mongoose.Types.ObjectId.isValid(staffId)) {
+      return res.status(400).json({ message: "Невалиден staff id." });
+    }
+
+    if (!Number.isFinite(rawRating) || rawRating < 1 || rawRating > 5) {
+      return res
+        .status(400)
+        .json({ message: "Рейтингът трябва да е число между 1 и 5." });
+    }
+
+    const staff = await User.findById(staffId);
+    if (!staff) {
+      return res.status(404).json({ message: "Служителят не е намерен." });
+    }
+
+    const currentTotal = Number(staff.ratingTotal || 0);
+    const currentCount = Number(staff.ratingCount || 0);
+
+    staff.ratingTotal = currentTotal + rawRating;
+    staff.ratingCount = currentCount + 1;
+    staff.rating = Number(rawRating.toFixed(1));
+
+    await staff.save();
+
+    res.json({
+      _id: staff._id,
+      rating: staff.rating,
+      ratingCount: staff.ratingCount,
     });
   } catch (e) {
     next(e);
