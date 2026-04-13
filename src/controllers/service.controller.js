@@ -10,27 +10,34 @@ export const createService = async (req, res, next) => {
       duration,
       price,
       color,
-      staffs,
+      staffMembers,
       category,
       paymentOption,
-      locationId
+      locationId,
+      isGroup,
+      capacity,
     } = req.body;
-    const imageUrl = req.file ? req.file.path : undefined;
-    let parsedStaffs = staffs;
-    if (staffs && typeof staffs === "string") {
+    const imageUrl = req.file ? req.file.path : req.body.imageUrl;
+    let parsedStaffIds = staffMembers;
+    if (staffMembers && typeof staffMembers === "string") {
       try {
-        parsedStaffs = JSON.parse(staffs);
+        parsedStaffIds = JSON.parse(staffMembers);
       } catch (error) {
-        parsedStaffs = [];
+        parsedStaffIds = [];
       }
     }
-    if (!Array.isArray(parsedStaffs)) {
-      if (typeof parsedStaffs === "string" && parsedStaffs.length === 24) {
-        parsedStaffs = [{ _id: parsedStaffs }];
+    if (!Array.isArray(parsedStaffIds)) {
+      if (typeof parsedStaffIds === "string" && parsedStaffIds.length === 24) {
+        parsedStaffIds = [parsedStaffIds];
       } else {
-        parsedStaffs = [];
+        parsedStaffIds = [];
       }
     }
+
+    // Ensure we only have IDs (if objects like {_id: ...} were sent)
+    parsedStaffIds = parsedStaffIds
+      .map((item) => (typeof item === "object" ? item._id : item))
+      .filter(Boolean);
 
     let businessId = req.user.businessId;
 
@@ -54,9 +61,11 @@ export const createService = async (req, res, next) => {
       price,
       color,
       imageUrl,
-      staffs: parsedStaffs,
+      staffMembers: parsedStaffIds,
       paymentOption: paymentOption || "cash",
       locationId,
+      isGroup: isGroup === "true" || isGroup === true,
+      capacity: Number(capacity) || 1,
     });
 
     res.status(201).json(service);
@@ -68,9 +77,19 @@ export const createService = async (req, res, next) => {
 export const listServices = async (req, res, next) => {
   try {
     const { businessId, locationId } = req.query;
+    const headerLocationId = req.headers["x-location-id"];
+    const effectiveLocationId = locationId || headerLocationId;
+    console.log("locationId", locationId);
+    console.log("headerLocationId", headerLocationId);
+    console.log("effectiveLocationId", effectiveLocationId);
     const filter = { business: businessId };
-    if (locationId) filter.locationId = locationId;
-    const services = await Service.find(filter).lean();
+    if (effectiveLocationId) filter.locationId = effectiveLocationId;
+    const services = await Service.find(filter)
+      .populate({
+        path: "staffMembers",
+        select: "firstName lastName profilePictureUrl",
+      })
+      .lean();
     res.json(services);
   } catch (e) {
     next(e);
@@ -87,9 +106,13 @@ export const updateService = async (req, res, next) => {
       price,
       color,
       category,
+      staffMembers,
       paymentOption,
+      locationId,
+      isGroup,
+      capacity,
     } = req.body;
-    const imageUrl = req.file?.path;
+    const imageUrl = req.file?.path || req.body.imageUrl;
     const serviceToUpdate = await Service.findById(serviceId);
     if (!serviceToUpdate) {
       return res.status(404).json({ message: "Услугата не е намерена." });
@@ -115,7 +138,42 @@ export const updateService = async (req, res, next) => {
     serviceToUpdate.paymentOption =
       paymentOption || serviceToUpdate.paymentOption;
 
-    if (imageUrl) {
+    if (isGroup !== undefined) {
+      serviceToUpdate.isGroup = isGroup === "true" || isGroup === true;
+    }
+    if (capacity !== undefined) {
+      serviceToUpdate.capacity = Number(capacity) || 1;
+    }
+    if (locationId !== undefined) {
+      serviceToUpdate.locationId = locationId || null;
+    }
+
+    if (staffMembers) {
+      let parsedStaffIds = staffMembers;
+      if (typeof staffMembers === "string") {
+        try {
+          parsedStaffIds = JSON.parse(staffMembers);
+        } catch (error) {
+          parsedStaffIds = [];
+        }
+      }
+      if (!Array.isArray(parsedStaffIds)) {
+        if (
+          typeof parsedStaffIds === "string" &&
+          parsedStaffIds.length === 24
+        ) {
+          parsedStaffIds = [parsedStaffIds];
+        } else {
+          parsedStaffIds = [];
+        }
+      }
+      // Ensure we only have IDs (if objects like {_id: ...} were sent)
+      serviceToUpdate.staffMembers = parsedStaffIds
+        .map((item) => (typeof item === "object" ? item._id : item))
+        .filter(Boolean);
+    }
+
+    if (imageUrl !== undefined) {
       serviceToUpdate.imageUrl = imageUrl;
     }
 
@@ -158,9 +216,8 @@ export const assignStaffToService = async (req, res, next) => {
     const { serviceId } = req.params;
     const { staffIds } = req.body; // Очакваме масив от ID-та на служители
 
-    const serviceToUpdate = await Service.findById(serviceId).populate(
-      "business"
-    );
+    const serviceToUpdate =
+      await Service.findById(serviceId).populate("business");
     if (!serviceToUpdate) {
       return res.status(404).json({ message: "Услугата не е намерена." });
     }
@@ -180,7 +237,7 @@ export const assignStaffToService = async (req, res, next) => {
     const businessStaffIds = businessStaff.map((staff) => String(staff._id));
 
     const areAllStaffValid = staffIds.every((id) =>
-      businessStaffIds.includes(id)
+      businessStaffIds.includes(id),
     );
 
     if (!areAllStaffValid) {
@@ -205,7 +262,7 @@ export const listStaffForService = async (req, res, next) => {
 
     const service = await Service.findById(serviceId).populate({
       path: "staffMembers",
-      select: "firstName lastName",
+      select: "firstName lastName imageUrl",
     });
 
     if (!service) {

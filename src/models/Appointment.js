@@ -16,8 +16,14 @@ const appointmentSchema = new mongoose.Schema(
     service: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Service",
-      required: true,
+      required: false,
     },
+    kind: {
+      type: String,
+      enum: ["appointment", "work_block"],
+      default: "appointment",
+    },
+    title: { type: String },
     client: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     clientName: String,
     clientPhone: String,
@@ -25,7 +31,7 @@ const appointmentSchema = new mongoose.Schema(
     appointmentTime: { type: TimeRangeSchema, required: true },
     status: {
       type: String,
-      enum: ["pending", "confirmed", "cancelled", "completed"],
+      enum: ["pending", "confirmed", "cancelled", "completed", "blocked"],
       default: "pending",
     },
     // Payment tracking (Stripe)
@@ -56,7 +62,7 @@ const appointmentSchema = new mongoose.Schema(
       required: false,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export default mongoose.model("Appointment", appointmentSchema);

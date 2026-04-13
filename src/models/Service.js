@@ -7,10 +7,10 @@ const serviceSchema = new mongoose.Schema(
       ref: "Business",
       required: true,
     },
-    staffs: [
+    staffMembers: [
       {
-        _id: { type: mongoose.Schema.Types.ObjectId, ref: "Staff" },
-        name: { type: String },
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
       },
     ],
     name: { type: String, required: true },
@@ -30,8 +30,29 @@ const serviceSchema = new mongoose.Schema(
       ref: "Location",
       required: false,
     },
+    isGroup: {
+      type: Boolean,
+      default: false,
+    },
+    capacity: {
+      type: Number,
+      default: 1,
+    },
   },
+
   { timestamps: true }
 );
+
+serviceSchema.pre("save", function (next) {
+  if (this.isModified("staffMembers") && Array.isArray(this.staffMembers)) {
+    this.staffMembers = this.staffMembers
+      .map((item) => {
+        if (typeof item === "object" && item._id) return item._id;
+        return item;
+      })
+      .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
+  }
+  next();
+});
 
 export default mongoose.model("Service", serviceSchema);

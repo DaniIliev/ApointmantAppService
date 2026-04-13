@@ -12,11 +12,10 @@ export const getBusinessOptions = async (req, res, next) => {
   }
 };
 import Business from "../models/Business.js";
-import StaffSchedule from "../models/StaffSchedule.js";
 import User from "../models/User.js";
 import { generateQrDataUrl } from "../utils/qrcode.js";
 
-const extractBusinessData = (body) => {
+const extractBusinessData = (body = {}) => {
   return {
     // General Information
     category: body.category,
@@ -25,7 +24,6 @@ const extractBusinessData = (body) => {
     openingHours: body.openingHours, // Contact Details
     phone: body.phone,
     email: body.email,
-    aboutUs: body.aboutUs,
     website: body.website, // Address
     address: body.address, // Street and Number
     addressLine2: body.addressLine2,
@@ -33,13 +31,22 @@ const extractBusinessData = (body) => {
     city: body.city,
     country: body.country, // Image URL (assuming it is sent in the body for simplicity,
     // but a proper file upload middleware is recommended for production)
-    businessImageUrl: body.imagePreview,
+    businessImageUrl: body.imagePreview || body.businessImageUrl,
   };
 };
 
 export const createBusiness = async (req, res, next) => {
   try {
-    const data = extractBusinessData(req.body);
+    let data = extractBusinessData(req.body);
+
+    if (req.file) {
+      const imageUrl = req.file.secure_url || req.file.path;
+      data = {
+        ...data,
+        businessImageUrl: imageUrl,
+      };
+    }
+
     if (!data.businessName) {
       return res.status(400).json({ message: "Име на бизнеса е задължително" });
     }
@@ -79,10 +86,27 @@ export const updateBusiness = async (req, res, next) => {
         businessImageUrl: newImageUrl,
       };
     }
+    let filter = null;
+    if (req.user.role === "business") {
+      filter = { _id: businessId, owner: req.user.id };
+    } else if (req.user.role === "manager") {
+      if (
+        !req.user.businessId ||
+        String(req.user.businessId) !== String(businessId)
+      ) {
+        return res.status(403).json({ message: "Нямате права за този бизнес" });
+      }
+      filter = { _id: businessId };
+    }
+
+    if (!filter) {
+      return res.status(403).json({ message: "Нямате права за тази операция" });
+    }
+
     const business = await Business.findOneAndUpdate(
-      { _id: businessId, owner: req.user.id },
+      filter,
       { $set: data },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     ).lean();
 
     if (!business) {
@@ -114,7 +138,7 @@ export const getBusinessById = async (req, res, next) => {
     if (!business) {
       return res.status(404).json({ message: "Business не е намерен" });
     }
-    
+
     res.json(business);
   } catch (e) {
     next(e);

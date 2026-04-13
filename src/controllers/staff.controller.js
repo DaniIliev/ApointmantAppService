@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
 import Business from "../models/Business.js";
@@ -5,14 +6,17 @@ import {
   inviteStaffEmail,
   sendEmailChangeNotification,
 } from "../utils/EmailService.js";
-import {
-  syncBusinessSubscriptionToUser,
-  clearUserSubscription,
-} from "../utils/subscriptionSync.js";
+import { syncBusinessSubscriptionToUser } from "../utils/subscriptionSync.js";
+import StaffSchedule from "../models/StaffSchedule.js";
+import DailySchedule from "../models/DailySchedule.js";
+import Service from "../models/Service.js";
 
 export const listBusinessStaff = async (req, res, next) => {
   try {
     const { businessId, locationId } = req.query;
+    const headerLocationId = req.headers["x-location-id"];
+    const effectiveLocationId = locationId || headerLocationId;
+
     if (!businessId) {
       return res
         .status(400)
@@ -25,12 +29,42 @@ export const listBusinessStaff = async (req, res, next) => {
 
     const filter = {
       businessId: business._id,
-      role: { $in: ["business", "staff"] },
     };
-    if (locationId) filter.locationId = locationId;
+    if (effectiveLocationId) {
+      filter.$or = [
+        { role: "business" },
+        { role: "manager", locationIds: { $in: [effectiveLocationId] } },
+        { role: "staff", locationIds: { $in: [effectiveLocationId] } },
+      ];
+    } else {
+      filter.role = { $in: ["business", "manager", "staff"] };
+    }
+
+    // Filter staff who have assigned services if requested
+    const { onlyWithServices } = req.query;
+    if (onlyWithServices === "true") {
+      const serviceFilter = { business: business._id };
+      if (effectiveLocationId) {
+        serviceFilter.locationId = effectiveLocationId;
+      }
+      const services = await Service.find(serviceFilter).select("staffMembers");
+
+      const assignedStaffIds = new Set();
+      services.forEach((service) => {
+        if (service.staffMembers && Array.isArray(service.staffMembers)) {
+          service.staffMembers.forEach((id) => {
+            if (id && mongoose.Types.ObjectId.isValid(id)) {
+              assignedStaffIds.add(id.toString());
+            }
+          });
+        }
+      });
+
+      filter._id = { $in: Array.from(assignedStaffIds) };
+    }
 
     const staffMembers = await User.find(filter).select(
-      "firstName lastName email phone role _id profilePictureUrl locationId"
+      "firstName lastName email phone role _id profilePictureUrl locationIds rating ratingCount",
     );
     res.json(staffMembers);
   } catch (e) {
@@ -40,8 +74,13 @@ export const listBusinessStaff = async (req, res, next) => {
 
 export const inviteStaff = async (req, res, next) => {
   try {
-    const { email, firstName, lastName, phone, locationId } = req.body;
+    const { email, firstName, lastName, phone, locationId, locationIds, role } =
+      req.body;
     const ownerId = req.user.id;
+    const normalizedLocationIds = normalizeLocationIds({
+      locationId,
+      locationIds,
+    });
 
     // 1. Проверка дали потребителят е собственик на бизнес
     const business = await Business.findOne({ owner: ownerId });
@@ -52,56 +91,83 @@ export const inviteStaff = async (req, res, next) => {
     }
 
     // 2. Проверка дали има съществуващ потребител с този имейл
-    const existingUser = await User.findOne({ email });
+    const normalizedEmail = email.trim().toLowerCase();
+    let existingUser = await User.findOne({ email: normalizedEmail });
+
     if (existingUser) {
-      return res
-        .status(409)
-        .json({ message: "Потребител с този имейл вече съществува." });
+      return await handleExistingStaffUser(
+        existingUser,
+        business,
+        normalizedLocationIds,
+        res,
+      );
     }
 
     // 3. Генериране на временна парола
     const tempPassword = Math.random().toString(36).slice(-8);
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-    // 4. Създаване на нов потребител със роля 'staff'
-    const newStaff = await User.create({
-      email,
-      passwordHash,
-      firstName,
-      lastName,
-      phone,
-      role: "staff",
-      businessId: business._id,
-      locationId: locationId || null,
-      mustChangePassword: true,
-    });
-
-    if (business.plan && business.plan !== "none") {
-      await syncBusinessSubscriptionToUser(newStaff._id, business._id, {
-        setActivatedAt: false,
+    // 4. Опит за създаване (с обработка на Race Condition)
+    try {
+      const newStaff = await User.create({
+        email: normalizedEmail,
+        passwordHash,
+        firstName,
+        lastName,
+        phone,
+        role: role,
+        businessId: business._id,
+        locationIds: normalizedLocationIds,
+        mustChangePassword: true,
       });
+
+      if (business.plan && business.plan !== "none") {
+        await syncBusinessSubscriptionToUser(newStaff._id, business._id, {
+          setActivatedAt: false,
+        });
+      }
+
+      // Автоматично клониране на графика на локацията към новия служител
+      for (const locId of normalizedLocationIds) {
+        await cloneLocationScheduleToStaff(newStaff._id, locId, business._id);
+      }
+
+      await inviteStaffEmail(
+        firstName,
+        lastName,
+        normalizedEmail,
+        tempPassword,
+        business.businessName,
+      );
+
+      return res.status(201).json({
+        message:
+          "Служителят е поканен успешно. Изпратен е имейл с временна парола.",
+        staff: {
+          _id: newStaff._id,
+          email: newStaff.email,
+          firstName: newStaff.firstName,
+          lastName: newStaff.lastName,
+          phone: newStaff.phone,
+          role: newStaff.role,
+          locationIds: newStaff.locationIds,
+        },
+      });
+    } catch (error) {
+      if (error.code === 11000) {
+        // Race Condition: Потребител е създаден между findOne и create
+        existingUser = await User.findOne({ email: normalizedEmail });
+        if (existingUser) {
+          return await handleExistingStaffUser(
+            existingUser,
+            business,
+            normalizedLocationIds,
+            res,
+          );
+        }
+      }
+      throw error;
     }
-
-    await inviteStaffEmail(
-      firstName,
-      lastName,
-      email,
-      tempPassword,
-      business.businessName
-    );
-
-    res.status(201).json({
-      message:
-        "Служителят е поканен успешно. Изпратен е имейл с временна парола.",
-      staff: {
-        _id: newStaff._id,
-        email: newStaff.email,
-        firstName: newStaff.firstName,
-        lastName: newStaff.lastName,
-        phone: newStaff.phone,
-        role: newStaff.role,
-      },
-    });
   } catch (error) {
     next(error);
   }
@@ -118,7 +184,7 @@ export const getStaffByIds = async (req, res, next) => {
     }
 
     const staff = await User.find({ _id: { $in: staffIds } }).select(
-      "firstName lastName email role"
+      "firstName lastName email role",
     );
 
     res.status(200).json(staff);
@@ -151,6 +217,137 @@ export const removeStaff = async (req, res, next) => {
 
     res.json({
       message: "Служителят е премахнат и акаунтът е изтрит успешно.",
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateStaff = async (req, res, next) => {
+  try {
+    const actorId = req.user.id;
+    const actorRole = req.user.role;
+    const { id: staffId } = req.params;
+    const { firstName, lastName, email, phone, role, locationIds } = req.body;
+
+    let business = null;
+    if (actorRole === "business") {
+      business = await Business.findOne({ owner: actorId });
+    } else if (actorRole === "manager" && req.user.businessId) {
+      business = await Business.findById(req.user.businessId);
+    }
+
+    if (!business) {
+      return res.status(403).json({
+        message: "Нямате права да редактирате служители.",
+      });
+    }
+
+    const staff = await User.findById(staffId);
+    if (!staff || String(staff.businessId) !== String(business._id)) {
+      return res
+        .status(404)
+        .json({ message: "Служителят не е намерен за този бизнес." });
+    }
+
+    let managerLocationIds = [];
+    if (actorRole === "manager") {
+      const manager = await User.findById(actorId).select(
+        "role businessId locationIds",
+      );
+
+      if (
+        !manager ||
+        manager.role !== "manager" ||
+        String(manager.businessId || "") !== String(business._id)
+      ) {
+        return res
+          .status(403)
+          .json({ message: "Нямате права да редактирате този служител." });
+      }
+
+      managerLocationIds = (manager.locationIds || []).map((id) => String(id));
+      const staffLocationIds = (staff.locationIds || []).map((id) =>
+        String(id),
+      );
+      const hasSharedLocation = staffLocationIds.some((id) =>
+        managerLocationIds.includes(id),
+      );
+
+      if (
+        !hasSharedLocation ||
+        staff.role === "business" ||
+        staff.role === "admin"
+      ) {
+        return res
+          .status(403)
+          .json({ message: "Нямате права да редактирате този служител." });
+      }
+    }
+
+    // Identify newly added locations to clone schedules
+    const oldLocationIds = (staff.locationIds || []).map((id) => String(id));
+    const normalizedLocationIds = Array.isArray(locationIds)
+      ? normalizeLocationIds({ locationIds })
+      : null;
+    const newLocationIds = normalizedLocationIds
+      ? normalizedLocationIds.filter(
+          (id) => !oldLocationIds.includes(String(id)),
+        )
+      : [];
+
+    // Update fields
+    if (firstName) staff.firstName = firstName;
+    if (lastName) staff.lastName = lastName;
+    if (phone) staff.phone = phone;
+    if (role) {
+      if (
+        actorRole === "manager" &&
+        (role === "business" || role === "admin")
+      ) {
+        return res.status(403).json({
+          message: "Manager няма права да задава тази роля.",
+        });
+      }
+      staff.role = role;
+    }
+
+    if (normalizedLocationIds) {
+      if (
+        actorRole === "manager" &&
+        normalizedLocationIds.some((id) => !managerLocationIds.includes(id))
+      ) {
+        return res.status(403).json({
+          message: "Manager може да задава само собствените си локации.",
+        });
+      }
+      staff.locationIds = normalizedLocationIds;
+    }
+
+    // Handle email change separately if needed (consistent with updateStaffEmail logic if desired)
+    if (email && email !== staff.email) {
+      const emailExists = await User.findOne({ email });
+      if (emailExists) {
+        return res.status(409).json({ message: "Имейлът вече се използва." });
+      }
+      staff.email = email;
+    }
+
+    await staff.save();
+
+    // Clone schedules for new locations
+    for (const locId of newLocationIds) {
+      await cloneLocationScheduleToStaff(staff._id, locId, business._id);
+    }
+
+    res.json({
+      _id: staff._id,
+      firstName: staff.firstName,
+      lastName: staff.lastName,
+      email: staff.email,
+      phone: staff.phone,
+      role: staff.role,
+      locationIds: staff.locationIds,
     });
   } catch (e) {
     next(e);
@@ -222,7 +419,7 @@ export const updateStaffEmail = async (req, res, next) => {
       staff.firstName,
       staff.lastName,
       tempPassword,
-      business.businessName
+      business.businessName,
     );
 
     res.status(200).json({
@@ -241,3 +438,198 @@ export const updateStaffEmail = async (req, res, next) => {
     next(e);
   }
 };
+
+export const rateStaff = async (req, res, next) => {
+  try {
+    const { id: staffId } = req.params;
+    const rawRating = Number(req.body?.rating);
+
+    if (!mongoose.Types.ObjectId.isValid(staffId)) {
+      return res.status(400).json({ message: "Невалиден staff id." });
+    }
+
+    if (!Number.isFinite(rawRating) || rawRating < 1 || rawRating > 5) {
+      return res
+        .status(400)
+        .json({ message: "Рейтингът трябва да е число между 1 и 5." });
+    }
+
+    const staff = await User.findById(staffId);
+    if (!staff) {
+      return res.status(404).json({ message: "Служителят не е намерен." });
+    }
+
+    const currentTotal = Number(staff.ratingTotal || 0);
+    const currentCount = Number(staff.ratingCount || 0);
+
+    staff.ratingTotal = currentTotal + rawRating;
+    staff.ratingCount = currentCount + 1;
+    staff.rating = Number(rawRating.toFixed(1));
+
+    await staff.save();
+
+    res.json({
+      _id: staff._id,
+      rating: staff.rating,
+      ratingCount: staff.ratingCount,
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Помощна функция за обработка на вече съществуващ потребител (логика за добавяне към локация)
+ */
+async function handleExistingStaffUser(user, business, locationIds, res) {
+  const incomingLocationIds = normalizeLocationIds({ locationIds });
+  const isOwner = String(user._id) === String(business.owner);
+  const isSameBusiness = String(user.businessId) === String(business._id);
+  const isUnattached = !user.businessId;
+
+  // Case 1: User belongs to SAME business (Owner or already Staff)
+  if (isSameBusiness || isOwner) {
+    const stringLocationIds = (user.locationIds || []).map((id) =>
+      id.toString(),
+    );
+    const locationIdsToAdd = incomingLocationIds.filter(
+      (locId) => !stringLocationIds.includes(locId.toString()),
+    );
+
+    if (locationIdsToAdd.length > 0) {
+      locationIdsToAdd.forEach((locId) => {
+        user.locationIds.push(new mongoose.Types.ObjectId(locId));
+      });
+      user.markModified("locationIds");
+
+      // If owner is inviting themselves, ensure they have a role that can be scheduled (or just keep as business)
+      // We don't change owner's role to 'staff' because they are 'business'
+
+      await user.save();
+
+      // Автоматично клониране на графика на локацията към служителя/собственика
+      for (const locId of locationIdsToAdd) {
+        await cloneLocationScheduleToStaff(user._id, locId, business._id);
+      }
+
+      return res.status(200).json({
+        message: isOwner
+          ? "Бизнес собственикът беше добавен успешно към локацията."
+          : "Служителят беше добавен към новата локация.",
+        staff: {
+          _id: user._id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          phone: user.phone,
+          role: user.role,
+          locationIds: user.locationIds,
+        },
+      });
+    }
+
+    return res.status(409).json({
+      message: isOwner
+        ? "Вече сте добавени към тази локация."
+        : "Този служител вече е добавен към тази локация.",
+    });
+  }
+
+  // Case 2: User exists but has NO business (Personal user)
+  if (isUnattached || user.role === "personal") {
+    user.businessId = business._id;
+    user.role = "staff"; // Convert to staff role
+    user.locationIds = incomingLocationIds.map(
+      (locId) => new mongoose.Types.ObjectId(locId),
+    );
+    user.markModified("locationIds");
+    await user.save();
+
+    for (const locId of incomingLocationIds) {
+      await cloneLocationScheduleToStaff(user._id, locId, business._id);
+    }
+
+    return res.status(200).json({
+      message: "Потребителят беше добавен като служител към вашия бизнес.",
+      staff: {
+        _id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        role: user.role,
+        locationIds: user.locationIds,
+      },
+    });
+  }
+
+  // Case 3: User belongs to ANOTHER business
+  return res.status(409).json({
+    message:
+      "Този имейл е свързан с друг бизнес профил и не може да бъде добавен.",
+  });
+}
+
+/**
+ * Клонира графика на локацията (staff: null) към новосъздадения служител
+ */
+async function cloneLocationScheduleToStaff(staffId, locationId, businessId) {
+  try {
+    // 1. Проверка дали служителят вече има график за тази локация
+    const existingStaffSchedule = await StaffSchedule.findOne({
+      staff: staffId,
+      location: locationId,
+    });
+    if (existingStaffSchedule) return;
+
+    // 2. Намиране на дефолтния график на локацията (staff: null)
+    const locationSchedule = await StaffSchedule.findOne({
+      staff: null,
+      location: locationId,
+    }).populate("dailySchedule");
+
+    if (!locationSchedule || !locationSchedule.dailySchedule) {
+      console.log(`ℹ️ Няма дефолтен график за локация ${locationId}`);
+      return;
+    }
+
+    // 3. Клониране на DailySchedule (създаване на нов запис)
+    const newDailySchedule = new DailySchedule({
+      workHours: locationSchedule.dailySchedule.workHours,
+    });
+    await newDailySchedule.save();
+
+    // 4. Създаване на нов StaffSchedule за служителя
+    const newStaffSchedule = new StaffSchedule({
+      startDate: locationSchedule.startDate,
+      endDate: locationSchedule.endDate,
+      workTime: locationSchedule.workTime,
+      isDayOff: locationSchedule.isDayOff,
+      break1: locationSchedule.break1,
+      break2: locationSchedule.break2,
+      break3: locationSchedule.break3,
+      staff: staffId,
+      location: locationId,
+      business: businessId,
+      dailySchedule: newDailySchedule._id,
+    });
+    await newStaffSchedule.save();
+    console.log(`✅ Графикът на локацията е клониран за служител ${staffId}`);
+  } catch (error) {
+    console.error("❌ Грешка при клониране на графика:", error);
+  }
+}
+
+function normalizeLocationIds({ locationId, locationIds }) {
+  const rawLocationIds = Array.isArray(locationIds)
+    ? locationIds
+    : locationId
+      ? [locationId]
+      : [];
+
+  const uniqueLocationIds = Array.from(
+    new Set(rawLocationIds.map((id) => String(id))),
+  );
+
+  return uniqueLocationIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+}

@@ -26,6 +26,7 @@ import { notFound, errorHandler } from "./middlewares/error.js";
 import chatbot from "./chatbot/chatbot.js";
 import { startSubscriptionExpirationJob } from "./jobs/subscriptionExpirationCheck.js";
 import locationRoutes from "./routes/location.routes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
 import "./config/passport.js";
 import passport from "passport";
 
@@ -59,7 +60,12 @@ app.use(
   cors({
     origin: [process.env.CLIENT_URL, "http://localhost:3000"].filter(Boolean),
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "x-auth-token",
+      "x-location-id",
+    ],
     credentials: true,
   })
 );
@@ -97,6 +103,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/locations", locationRoutes);
+app.use("/api/notifications", notificationRoutes);
 app.use(passport.initialize());
 
 app.use(notFound);

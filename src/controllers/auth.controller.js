@@ -81,8 +81,20 @@ export const login = async (req, res, next) => {
     const token = jwt.sign(
       { id: user._id, role: user.role, businessId: user.businessId },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "7d" },
     );
+
+    let locations = [];
+    if (user.role === "business" && user.businessId) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ businessId: user.businessId }).lean();
+    } else if (user.role === "staff" && user.locationIds) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({
+        _id: { $in: user.locationIds },
+      }).lean();
+    }
+
     res.json({
       token,
       user: {
@@ -93,6 +105,7 @@ export const login = async (req, res, next) => {
         lastName: user.lastName,
         businessId: user.businessId,
         mustChangePassword: user.mustChangePassword,
+        locations,
       },
     });
   } catch (e) {
@@ -114,6 +127,17 @@ export const getUserById = async (req, res, next) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    let locations = [];
+    if (user.role === "business" && user.businessId) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ businessId: user.businessId }).lean();
+    } else if (user.role === "staff" && user.locationIds) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({
+        _id: { $in: user.locationIds },
+      }).lean();
+    }
+
     res.status(200).json({
       _id: user._id,
       email: user.email,
@@ -130,15 +154,16 @@ export const getUserById = async (req, res, next) => {
       subscriptionBusinessId: user.subscriptionBusinessId,
       subscriptionActivatedAt: user.subscriptionActivatedAt,
       subscriptionCurrentPeriodEnd: user.subscriptionCurrentPeriodEnd,
+      locations,
     });
   } catch (error) {
-    next(e);
+    next(error);
   }
 };
 
 export const updateUser = async (req, res, next) => {
   const { id } = req.params;
-  const { firstName, lastName, phone, primaryColor, theme} = req.body;
+  const { firstName, lastName, phone, primaryColor, theme } = req.body;
 
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({ message: "Invalid ID format" });
@@ -155,7 +180,7 @@ export const updateUser = async (req, res, next) => {
     const updatedUser = await User.findByIdAndUpdate(
       id,
       { $set: updateFields },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     );
 
     if (!updatedUser) {
@@ -167,10 +192,17 @@ export const updateUser = async (req, res, next) => {
       email: updatedUser.email,
       firstName: updatedUser.firstName,
       lastName: updatedUser.lastName,
-      phone: updatedUser.phone,
+      role: updatedUser.role,
+      businessId: updatedUser.businessId,
       primaryColor: updatedUser.primaryColor,
       theme: updatedUser.theme,
+      mustChangePassword: updatedUser.mustChangePassword,
       profilePictureUrl: updatedUser.profilePictureUrl,
+      subscriptionPlan: updatedUser.subscriptionPlan,
+      subscriptionStatus: updatedUser.subscriptionStatus,
+      subscriptionBusinessId: updatedUser.subscriptionBusinessId,
+      subscriptionActivatedAt: updatedUser.subscriptionActivatedAt,
+      subscriptionCurrentPeriodEnd: updatedUser.subscriptionCurrentPeriodEnd,
     });
   } catch (e) {
     next(e);
@@ -190,7 +222,7 @@ export const updateRole = async (req, res, next) => {
     user.role = role;
     await user.save();
 
-    res.json({ message: "Ролята е обновена успешно", role: user.role });
+    res.json({ message: "Ролята е обновена успешно", user: user });
   } catch (e) {
     next(e);
   }
@@ -212,7 +244,7 @@ export const updateProfilePicture = async (req, res, next) => {
     const updatedUser = await User.findByIdAndUpdate(
       id,
       { profilePictureUrl: imageUrl },
-      { new: true }
+      { new: true },
     );
 
     if (!updatedUser) {
@@ -229,7 +261,7 @@ export const updateProfilePicture = async (req, res, next) => {
 };
 export const refreshToken = async (req, res, next) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -238,8 +270,19 @@ export const refreshToken = async (req, res, next) => {
     const token = jwt.sign(
       { id: user._id, role: user.role, businessId: user.businessId },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "7d" },
     );
+
+    let locations = [];
+    if (user.role === "business" && user.businessId) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ businessId: user.businessId }).lean();
+    } else if (user.role === "staff" && user.locationIds) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({
+        _id: { $in: user.locationIds },
+      }).lean();
+    }
 
     res.json({
       token,
@@ -251,9 +294,57 @@ export const refreshToken = async (req, res, next) => {
         lastName: user.lastName,
         businessId: user.businessId,
         mustChangePassword: user.mustChangePassword,
+        locations,
       },
     });
   } catch (e) {
     next(e);
+  }
+};
+
+export const getMe = async (req, res, next) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    let locations = [];
+    if (user.role === "business" && user.businessId) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({ businessId: user.businessId }).lean();
+    } else if (user.role === "staff" && user.locationIds) {
+      const Location = mongoose.model("Location");
+      locations = await Location.find({
+        _id: { $in: user.locationIds },
+      }).lean();
+    }
+
+    res.status(200).json({
+      _id: user._id,
+      id: user._id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      businessId: user.businessId,
+      primaryColor: user.primaryColor,
+      theme: user.theme,
+      mustChangePassword: user.mustChangePassword,
+      profilePictureUrl: user.profilePictureUrl,
+      subscriptionPlan: user.subscriptionPlan,
+      subscriptionStatus: user.subscriptionStatus,
+      subscriptionBusinessId: user.subscriptionBusinessId,
+      subscriptionActivatedAt: user.subscriptionActivatedAt,
+      subscriptionCurrentPeriodEnd: user.subscriptionCurrentPeriodEnd,
+      locations,
+    });
+  } catch (error) {
+    next(error);
   }
 };

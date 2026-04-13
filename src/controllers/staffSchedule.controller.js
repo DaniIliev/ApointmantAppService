@@ -1,10 +1,8 @@
-// staffScheduleController.js
-
 import StaffSchedule from "../models/StaffSchedule.js";
 import User from "../models/User.js";
 import DailySchedule from "../models/DailySchedule.js";
+import mongoose from "mongoose";
 
-// Помощна функция за създаване на дневен график по подразбиране
 const createDefaultDailySchedule = async (
   startDate,
   endDate,
@@ -12,7 +10,7 @@ const createDefaultDailySchedule = async (
   isDayOff, // Очаква масив от стрингове с малки букви (e.g., ["saturday", "sunday"])
   break1,
   break2,
-  break3
+  break3,
 ) => {
   const workHours = [];
   const start = new Date(startDate);
@@ -29,6 +27,9 @@ const createDefaultDailySchedule = async (
   if (break3 && break3.start && break3.end) {
     breaks.push({ start: break3.start, end: break3.end });
   }
+
+  // Sort breaks chronologically to avoid issues with out-of-order entry
+  breaks.sort((a, b) => a.start.localeCompare(b.start));
 
   // Обхожда всички дни в периода
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -67,32 +68,65 @@ const createDefaultDailySchedule = async (
 // --- GET /api/staff-schedules ---
 export const getSchedules = async (req, res, next) => {
   try {
-    const { locationId, staffId } = req.query;
-    const userId = req.user.id;
-    const userRole = req.user.role;
+    const { staffId } = req.query;
+    // Query parameter takes precedence over header, allowing bypass with ?locationId=null
+    const locationId =
+      req.query.locationId !== undefined
+        ? req.query.locationId
+        : req.headers["x-location-id"];
+    const userId = req.user?.id || req.user?._id;
+    const userRole = req.user?.role;
 
+    if (!userId) {
+      return res.status(401).json({ message: "Невалидна аутентикация." });
+    }
     const filter = {};
-    
+
     // Always filter by the user's business
     const requestUser = await User.findById(userId);
     if (!requestUser || !requestUser.businessId) {
-      return res.status(400).json({ message: "User is not associated with a business." });
+      return res
+        .status(400)
+        .json({ message: "Потребителят не е свързан с бизнес." });
     }
-    filter.business = requestUser.businessId;
-    
-    // If user is a business owner, they might want to see all schedules for a location
-    if (userRole === "business") {
-      if (locationId) filter.location = locationId;
-      if (staffId) filter.staff = (staffId === "null" || staffId === null) ? null : staffId;
+    // Ensure we have a valid ObjectId for business
+    const bizIdStr =
+      requestUser.businessId?.toString() || requestUser._id?.toString();
+    filter.business = new mongoose.Types.ObjectId(bizIdStr);
+
+    // Safety check for locationId/staffId to avoid filtering by "undefined", "null" or empty strings
+    const isExplicitExclude =
+      locationId === "null" || locationId === "none" || locationId === "all";
+    const effectiveLocationId =
+      locationId &&
+      !isExplicitExclude &&
+      String(locationId) !== "undefined" &&
+      String(locationId) !== ""
+        ? locationId
+        : null;
+    const effectiveStaffId =
+      staffId && String(staffId) !== "undefined" && String(staffId) !== ""
+        ? staffId
+        : null;
+
+    if (userRole === "business" || userRole === "manager") {
+      if (effectiveLocationId) filter.location = effectiveLocationId;
+      if (effectiveStaffId) {
+        filter.staff =
+          effectiveStaffId === "null" || effectiveStaffId === null
+            ? null
+            : effectiveStaffId;
+      }
     } else {
-      // Staff members only see their own schedules
       filter.staff = userId;
-      if (locationId) filter.location = locationId;
+      if (effectiveLocationId) filter.location = effectiveLocationId;
     }
 
-    const schedules = await StaffSchedule.find(filter).sort({
-      startDate: -1,
-    });
+    const schedules = await StaffSchedule.find(filter)
+      .populate("staff", "firstName lastName email")
+      .sort({
+        startDate: -1,
+      });
     res.status(200).json(schedules);
   } catch (e) {
     next(e);
@@ -105,19 +139,23 @@ export const getSchedules = async (req, res, next) => {
 export const getDailySchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
 
     const schedule = await StaffSchedule.findById(id).populate("dailySchedule");
     if (!schedule) {
       return res.status(404).json({ message: "Графикът не е намерен." });
     }
-    
+
     // Ownership check: must be the staff member OR the business owner
     // For now, let's allow if staff matches OR if it's a business owner (simplified)
-    if (schedule.staff && schedule.staff.toString() !== userId && req.user.role !== "business") {
+    if (
+      schedule.staff &&
+      schedule.staff.toString() !== userId &&
+      req.user.role !== "business"
+    ) {
       return res.status(403).json({ message: "Нямаш достъп до този график." });
     }
-    
+
     // Връща workHours, които трябва да съдържат и isDayOff
     res.status(200).json(schedule.dailySchedule.workHours);
   } catch (e) {
@@ -130,17 +168,17 @@ export const getDailySchedule = async (req, res, next) => {
 // --- POST /api/staff-schedules ---
 export const createSchedule = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    const { 
-      startDate, 
-      endDate, 
-      workTime, 
-      isDayOff, 
-      break1, 
-      break2, 
+    const userId = req.user?.id || req.user?._id;
+    const {
+      startDate,
+      endDate,
+      workTime,
+      isDayOff,
+      break1,
+      break2,
       break3,
       locationId,
-      staffId // Optional
+      staffId, // Optional
     } = req.body;
 
     if (!locationId) {
@@ -148,14 +186,20 @@ export const createSchedule = async (req, res, next) => {
     }
 
     const requestUser = await User.findById(userId);
-    if (!requestUser || (requestUser.role !== "staff" && requestUser.role !== "business")) {
+    if (
+      !requestUser ||
+      (requestUser.role !== "staff" && requestUser.role !== "business")
+    ) {
       return res.status(403).json({
-        message: "Само служители и собственици на бизнес могат да управляват график.",
+        message:
+          "Само служители и собственици на бизнес могат да управляват график.",
       });
     }
 
     if (!requestUser.businessId) {
-      return res.status(400).json({ message: "Потребителят не е свързан с бизнес." });
+      return res
+        .status(400)
+        .json({ message: "Потребителят не е свързан с бизнес." });
     }
 
     // ✅ ФИКС: Логика за трансформация на isDayOff от обект в масив от стрингове (за DailySchedule)
@@ -166,7 +210,7 @@ export const createSchedule = async (req, res, next) => {
 
     // Трансформираме обекта в масив от стрингове (имена на почивните дни с малки букви)
     const daysOffArray = Object.keys(daysOffObject).filter(
-      (day) => daysOffObject[day] === true
+      (day) => daysOffObject[day] === true,
     );
 
     const dailyScheduleDoc = await createDefaultDailySchedule(
@@ -176,7 +220,7 @@ export const createSchedule = async (req, res, next) => {
       daysOffArray,
       break1,
       break2,
-      break3
+      break3,
     );
 
     const newSchedule = new StaffSchedule({
@@ -205,8 +249,8 @@ export const createSchedule = async (req, res, next) => {
 export const updateSchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
-    const userRole = req.user.role;
+    const userId = req.user?.id || req.user?._id;
+    const userRole = req.user?.role;
     const updateData = req.body;
 
     const currentSchedule = await StaffSchedule.findById(id);
@@ -215,7 +259,11 @@ export const updateSchedule = async (req, res, next) => {
     }
 
     // Permission check: staff member themselves or business owner
-    if (currentSchedule.staff && currentSchedule.staff.toString() !== userId && userRole !== "business") {
+    if (
+      currentSchedule.staff &&
+      currentSchedule.staff.toString() !== userId &&
+      userRole !== "business"
+    ) {
       return res.status(403).json({ message: "Нямаш достъп до този график." });
     }
 
@@ -223,7 +271,7 @@ export const updateSchedule = async (req, res, next) => {
     const updatedSchedule = await StaffSchedule.findByIdAndUpdate(
       id,
       updateData,
-      { new: true }
+      { new: true },
     );
 
     // 3. Актуализиране на DailySchedule, ако има промени в правилата
@@ -238,7 +286,7 @@ export const updateSchedule = async (req, res, next) => {
     ];
 
     const shouldUpdateDailySchedule = fieldsToTriggerDailyUpdate.some((field) =>
-      updateData.hasOwnProperty(field)
+      updateData.hasOwnProperty(field),
     );
 
     if (shouldUpdateDailySchedule) {
@@ -248,7 +296,7 @@ export const updateSchedule = async (req, res, next) => {
           ? isDayOffNew[0]
           : isDayOffNew || {};
       const daysOffArray = Object.keys(daysOffObject).filter(
-        (day) => daysOffObject[day] === true
+        (day) => daysOffObject[day] === true,
       );
 
       await DailySchedule.findByIdAndDelete(currentSchedule.dailySchedule);
@@ -260,12 +308,12 @@ export const updateSchedule = async (req, res, next) => {
         daysOffArray,
         updateData.break1 || updatedSchedule.break1,
         updateData.break2 || updatedSchedule.break2,
-        updateData.break3 || updatedSchedule.break3
+        updateData.break3 || updatedSchedule.break3,
       );
 
       await StaffSchedule.updateOne(
         { _id: updatedSchedule._id },
-        { dailySchedule: newDailyScheduleDoc._id }
+        { dailySchedule: newDailyScheduleDoc._id },
       );
 
       updatedSchedule.dailySchedule = newDailyScheduleDoc._id;
@@ -283,15 +331,19 @@ export const updateSchedule = async (req, res, next) => {
 export const updateDailySchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
-    const { workHours } = req.body;
+    const userId = req.user?.id || req.user?._id;
+    const { workHours, workHour } = req.body;
 
     const schedule = await StaffSchedule.findById(id);
     if (!schedule) {
       return res.status(404).json({ message: "Графикът не е намерен." });
     }
 
-    if (schedule.staff && schedule.staff.toString() !== userId && req.user.role !== "business") {
+    if (
+      schedule.staff &&
+      schedule.staff.toString() !== userId &&
+      req.user.role !== "business"
+    ) {
       return res.status(403).json({ message: "Нямаш достъп до този график." });
     }
 
@@ -301,7 +353,35 @@ export const updateDailySchedule = async (req, res, next) => {
         .status(404)
         .json({ message: "Детайлният график не е намерен." });
     }
-    dailySchedule.workHours = workHours;
+
+    if (Array.isArray(workHours)) {
+      dailySchedule.workHours = workHours;
+    } else if (workHour && typeof workHour === "object") {
+      const targetId = workHour._id?.toString();
+      const index = dailySchedule.workHours.findIndex(
+        (item) => item._id.toString() === targetId,
+      );
+
+      if (index === -1) {
+        return res
+          .status(404)
+          .json({ message: "Денят за редакция не е намерен." });
+      }
+
+      dailySchedule.workHours[index] = {
+        ...dailySchedule.workHours[index].toObject(),
+        ...workHour,
+        date: workHour.date
+          ? new Date(workHour.date)
+          : dailySchedule.workHours[index].date,
+      };
+    } else {
+      return res.status(400).json({
+        message:
+          "Невалиден payload. Изпрати `workHours` (масив) или `workHour` (един ден).",
+      });
+    }
+
     await dailySchedule.save();
     res.status(200).json(dailySchedule);
   } catch (e) {
@@ -315,14 +395,18 @@ export const updateDailySchedule = async (req, res, next) => {
 export const applyScheduleToAllStaff = async (req, res, next) => {
   try {
     const { scheduleId } = req.body;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
 
     const mainSchedule = await StaffSchedule.findById(scheduleId);
     if (!mainSchedule) {
       return res.status(404).json({ message: "Графикът не е намерен." });
     }
 
-    if (mainSchedule.staff && mainSchedule.staff.toString() !== userId && req.user.role !== "business") {
+    if (
+      mainSchedule.staff &&
+      mainSchedule.staff.toString() !== userId &&
+      req.user.role !== "business"
+    ) {
       return res.status(403).json({ message: "Нямаш достъп до този график." });
     }
 
@@ -333,7 +417,7 @@ export const applyScheduleToAllStaff = async (req, res, next) => {
     });
 
     const dailySchedule = await DailySchedule.findById(
-      mainSchedule.dailySchedule
+      mainSchedule.dailySchedule,
     );
     if (!dailySchedule) {
       return res
@@ -343,16 +427,20 @@ export const applyScheduleToAllStaff = async (req, res, next) => {
 
     for (const staff of staffUsers) {
       // Пропускаме оригиналния потребител, който вече има графика
-      if (mainSchedule.staff && staff._id.toString() === mainSchedule.staff.toString()) continue;
+      if (
+        mainSchedule.staff &&
+        staff._id.toString() === mainSchedule.staff.toString()
+      )
+        continue;
 
       const existingSchedule = await StaffSchedule.findOne({
         staff: staff._id,
-        location: mainSchedule.location
+        location: mainSchedule.location,
       });
 
       if (existingSchedule) {
         const staffDailySchedule = await DailySchedule.findById(
-          existingSchedule.dailySchedule
+          existingSchedule.dailySchedule,
         );
         if (staffDailySchedule) {
           staffDailySchedule.workHours = dailySchedule.workHours;
@@ -395,14 +483,20 @@ export const applyScheduleToAllStaff = async (req, res, next) => {
 export const deleteSchedule = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user?.id || req.user?._id;
 
     const currentSchedule = await StaffSchedule.findById(id);
     if (!currentSchedule) {
       return res.status(404).json({ message: "Графикът не е намерен." });
     }
 
-    if (currentSchedule.staff && currentSchedule.staff.toString() !== userId && req.user.role !== "business") {
+    // Check authorization: allow if user is staff owner OR has business/manager role
+    const isStaffOwner =
+      currentSchedule.staff && currentSchedule.staff.toString() === userId;
+    const hasAdminRole =
+      req.user.role === "business" || req.user.role === "manager";
+
+    if (!isStaffOwner && !hasAdminRole) {
       return res.status(403).json({ message: "Нямаш достъп до този график." });
     }
 

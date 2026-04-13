@@ -29,9 +29,28 @@ const userSchema = new mongoose.Schema(
     firstName: { type: String, required: false },
     lastName: { type: String, required: false },
     phone: { type: String, required: false },
+    rating: {
+      type: Number,
+      required: false,
+      min: 0,
+      max: 5,
+      default: 0,
+    },
+    ratingCount: {
+      type: Number,
+      required: false,
+      min: 0,
+      default: 0,
+    },
+    ratingTotal: {
+      type: Number,
+      required: false,
+      min: 0,
+      default: 0,
+    },
     role: {
       type: String,
-      enum: ["business", "personal", "staff", "admin"],
+      enum: ["business", "personal", "staff", "admin", "manager"],
       // required: true,
     },
     businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
@@ -65,9 +84,9 @@ const userSchema = new mongoose.Schema(
     mustChangePassword: { type: Boolean, default: false },
     otpCode: { type: String, required: false },
     otpExpiresAt: { type: Date, required: false },
-    locationId: { type: mongoose.Schema.Types.ObjectId, ref: "Location" },
+    locationIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Location" }],
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export default mongoose.model("User", userSchema);
