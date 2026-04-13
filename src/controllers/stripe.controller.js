@@ -77,8 +77,8 @@ export const createCheckoutSession = async (req, res) => {
         planName: planName,
         isFirstPurchase: isFirstTimeSubscriber ? "true" : "false",
       },
-      success_url: `${FRONDEND_REDIRECT_URL}/dashboard`,
-      cancel_url: `${FRONDEND_REDIRECT_URL}/for-bussiness`,
+      success_url: `${FRONDEND_REDIRECT_URL}/pricing/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${FRONDEND_REDIRECT_URL}/pricing/payment-failed`,
     };
 
     // Добавяне на промо код само ако е дефиниран и потребителят е нов
@@ -102,6 +102,60 @@ export const createCheckoutSession = async (req, res) => {
 
     res.status(500).json({
       error: "Неуспешно създаване на сесия за плащане.",
+      details: error.message,
+    });
+  }
+};
+
+export const getCheckoutInvoiceLink = async (req, res) => {
+  const { sessionId } = req.query;
+
+  if (!sessionId) {
+    return res.status(400).json({ message: "Missing sessionId query param." });
+  }
+
+  const stripe = getStripe();
+  if (!stripe) {
+    return res.status(500).json({
+      message:
+        "Stripe is not configured on the server. Missing STRIPE_SECRET_KEY.",
+    });
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ["subscription", "subscription.latest_invoice", "invoice"],
+    });
+
+    const sessionBusinessId = session?.metadata?.businessId;
+    const requesterBusinessId = req.user?.businessId;
+    if (
+      !sessionBusinessId ||
+      !requesterBusinessId ||
+      String(sessionBusinessId) !== String(requesterBusinessId)
+    ) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    let invoice = session.invoice || session?.subscription?.latest_invoice;
+
+    if (typeof invoice === "string") {
+      invoice = await stripe.invoices.retrieve(invoice);
+    }
+
+    const invoiceUrl = invoice?.hosted_invoice_url || invoice?.invoice_pdf;
+
+    if (!invoiceUrl) {
+      return res.status(404).json({
+        message:
+          "Invoice is not available yet. Please try again in a few moments.",
+      });
+    }
+
+    return res.json({ invoiceUrl });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to load Stripe invoice.",
       details: error.message,
     });
   }

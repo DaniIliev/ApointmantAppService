@@ -2,7 +2,10 @@
 
 import express from "express";
 import { requireRole } from "../middlewares/auth.js";
-import { createCheckoutSession } from "../controllers/stripe.controller.js";
+import {
+  createCheckoutSession,
+  getCheckoutInvoiceLink,
+} from "../controllers/stripe.controller.js";
 import authMiddleware from "../middlewares/auth.js";
 
 const router = express.Router();
@@ -17,7 +20,14 @@ router.post(
   "/checkout-session",
   authMiddleware,
   requireRole("business"),
-  createCheckoutSession
+  createCheckoutSession,
+);
+
+router.get(
+  "/checkout-invoice",
+  authMiddleware,
+  requireRole("business"),
+  getCheckoutInvoiceLink,
 );
 
 // Тук можете да добавите руут и за анулиране на абонамент
