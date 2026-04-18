@@ -1,5 +1,24 @@
 import mongoose from "mongoose";
 
+const TimeRangeSchema = new mongoose.Schema(
+  {
+    start: { type: String, default: null },
+    end: { type: String, default: null },
+  },
+  { _id: false },
+);
+
+const WeeklyDaySchema = new mongoose.Schema(
+  {
+    isDayOff: { type: Boolean, default: false },
+    workTime: {
+      type: TimeRangeSchema,
+      default: () => ({ start: null, end: null }),
+    },
+  },
+  { _id: false },
+);
+
 const locationSchema = new mongoose.Schema(
   {
     businessId: {
@@ -50,8 +69,59 @@ const locationSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    weeklyWorkingHours: {
+      monday: {
+        type: WeeklyDaySchema,
+        default: () => ({
+          isDayOff: false,
+          workTime: { start: "09:00", end: "18:00" },
+        }),
+      },
+      tuesday: {
+        type: WeeklyDaySchema,
+        default: () => ({
+          isDayOff: false,
+          workTime: { start: "09:00", end: "18:00" },
+        }),
+      },
+      wednesday: {
+        type: WeeklyDaySchema,
+        default: () => ({
+          isDayOff: false,
+          workTime: { start: "09:00", end: "18:00" },
+        }),
+      },
+      thursday: {
+        type: WeeklyDaySchema,
+        default: () => ({
+          isDayOff: false,
+          workTime: { start: "09:00", end: "18:00" },
+        }),
+      },
+      friday: {
+        type: WeeklyDaySchema,
+        default: () => ({
+          isDayOff: false,
+          workTime: { start: "09:00", end: "18:00" },
+        }),
+      },
+      saturday: {
+        type: WeeklyDaySchema,
+        default: () => ({
+          isDayOff: true,
+          workTime: { start: null, end: null },
+        }),
+      },
+      sunday: {
+        type: WeeklyDaySchema,
+        default: () => ({
+          isDayOff: true,
+          workTime: { start: null, end: null },
+        }),
+      },
+    },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Index for faster queries

@@ -2,39 +2,105 @@ import StaffSchedule from "../models/StaffSchedule.js";
 import User from "../models/User.js";
 import DailySchedule from "../models/DailySchedule.js";
 import mongoose from "mongoose";
+import Location from "../models/Location.js";
+
+const isTimeValid = (timeStr) => {
+  if (!timeStr) return false;
+  return /^\d{2}:\d{2}/.test(timeStr);
+};
+
+const validateLocationHours = async (locationId, userWeeklyWorkingHours) => {
+  const location = await Location.findById(locationId);
+  if (!location) {
+     return { isValid: false, message: "Локацията не е намерена." };
+  }
+
+  const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+  for (const day of days) {
+    const userDay = userWeeklyWorkingHours?.[day];
+    
+    if (userDay && !userDay.isDayOff) {
+      const uWorkTime = userDay.workTime;
+      if (!uWorkTime || !isTimeValid(uWorkTime.start) || !isTimeValid(uWorkTime.end)) {
+         return { isValid: false, message: `Невалиден формат за работните часове в ден ${day}.` };
+      }
+
+      const locDay = location.weeklyWorkingHours?.[day];
+      if (locDay?.isDayOff) {
+        return { isValid: false, message: `Локацията не работи в ден ${day}. Не можете да зададете работен график за този ден.` };
+      }
+      
+      if (!locDay || !locDay.workTime || !locDay.workTime.start || !locDay.workTime.end) {
+         return { isValid: false, message: `Локацията няма дефинирано работно време в ден ${day}.` };
+      }
+
+      if (uWorkTime.start < locDay.workTime.start || uWorkTime.end > locDay.workTime.end) {
+         return { isValid: false, message: `Графикът в ден ${day} (${uWorkTime.start}-${uWorkTime.end}) излиза извън работното време на локацията (${locDay.workTime.start}-${locDay.workTime.end}).` };
+      }
+    }
+  }
+  return { isValid: true };
+};
+
+const validateScheduleConflicts = async (staffId, startDate, endDate, userWeeklyWorkingHours, excludeScheduleId = null) => {
+  if (!staffId) return { isValid: true };
+
+  const filter = {
+    staff: staffId,
+    startDate: { $lte: new Date(endDate) },
+    endDate: { $gte: new Date(startDate) }
+  };
+  if (excludeScheduleId) filter._id = { $ne: excludeScheduleId };
+
+  const overlappingSchedules = await StaffSchedule.find(filter).populate("dailySchedule");
+
+  const timesOverlap = (start1, end1, start2, end2) => start1 < end2 && end1 > start2;
+
+  const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+  for (const existing of overlappingSchedules) {
+    if (!existing.dailySchedule || !existing.dailySchedule.workHours) continue;
+
+    for (const day of days) {
+      const userDay = userWeeklyWorkingHours?.[day];
+      if (!userDay || userDay.isDayOff) continue;
+
+      // Find the work details for this day of the week in the existing daily schedule
+      // Since a template is usually consistent, we look for the first occurrence of this day name
+      const existingDay = existing.dailySchedule.workHours.find(item => item.day === day);
+      
+      if (existingDay && !existingDay.isDayOff) {
+        if (timesOverlap(userDay.workTime.start, userDay.workTime.end, existingDay.workTime.start, existingDay.workTime.end)) {
+          return { isValid: false, message: `Има конфликт с друг график на този служител в ден ${day} (припокриващи се часове).` };
+        }
+      }
+    }
+  }
+  return { isValid: true };
+};
 
 const createDefaultDailySchedule = async (
   startDate,
   endDate,
-  workTime,
-  isDayOff, // Очаква масив от стрингове с малки букви (e.g., ["saturday", "sunday"])
-  break1,
-  break2,
-  break3,
+  weeklyWorkingHours,
+  breaks = [],
 ) => {
   const workHours = [];
   const start = new Date(startDate);
   const end = new Date(endDate);
-  const breaks = [];
+  
+  // Ensure breaks is an array and filter out empty ones
+  const activeBreaks = Array.isArray(breaks) 
+    ? breaks.filter(b => b.start && b.end) 
+    : [];
 
-  // Correctly format breaks to match the schema
-  if (break1 && break1.start && break1.end) {
-    breaks.push({ start: break1.start, end: break1.end });
-  }
-  if (break2 && break2.start && break2.end) {
-    breaks.push({ start: break2.start, end: break2.end });
-  }
-  if (break3 && break3.start && break3.end) {
-    breaks.push({ start: break3.start, end: break3.end });
-  }
-
-  // Sort breaks chronologically to avoid issues with out-of-order entry
-  breaks.sort((a, b) => a.start.localeCompare(b.start));
+  // Sort breaks to ensure consistency
+  activeBreaks.sort((a, b) => a.start.localeCompare(b.start));
 
   // Обхожда всички дни в периода
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     const dayOfWeek = d.getDay(); // 0 for Sunday, 1 for Monday
-    // Името на деня се превръща в малка буква за сравнение
     const dayName = [
       "sunday",
       "monday",
@@ -45,18 +111,18 @@ const createDefaultDailySchedule = async (
       "saturday",
     ][dayOfWeek];
 
-    // Проверява дали денят е включен в масива с почивни дни
-    const isThisDayOff = isDayOff.includes(dayName);
+    const isThisDayOff = weeklyWorkingHours?.[dayName]?.isDayOff ?? true;
+    const wTime = weeklyWorkingHours?.[dayName]?.workTime ?? {
+      start: null,
+      end: null,
+    };
 
     workHours.push({
       day: dayName,
       date: new Date(d),
-      // isDayOff се запазва тук
       isDayOff: isThisDayOff,
-      workTime: isThisDayOff
-        ? null
-        : { start: workTime.start, end: workTime.end },
-      breaks: isThisDayOff ? [] : breaks,
+      workTime: isThisDayOff ? null : { start: wTime.start, end: wTime.end },
+      breaks: isThisDayOff ? [] : activeBreaks,
     });
   }
   const dailySchedule = new DailySchedule({ workHours });
@@ -165,6 +231,76 @@ export const getDailySchedule = async (req, res, next) => {
 
 // -------------------------------------------------------------------
 
+// --- GET /api/staff-schedules/details/by-staff/:staffId ---
+export const getDailyScheduleByStaff = async (req, res, next) => {
+  try {
+    const { staffId } = req.params;
+    const { locationId } = req.query;
+    const userId = req.user?.id || req.user?._id;
+
+    if (!userId) {
+      return res.status(401).json({ message: "Невалидна аутентикация." });
+    }
+
+    const requestUser = await User.findById(userId);
+    if (!requestUser || !requestUser.businessId) {
+      return res
+        .status(400)
+        .json({ message: "Потребителят не е свързан с бизнес." });
+    }
+
+    const filter = {
+      business: new mongoose.Types.ObjectId(requestUser.businessId),
+      staff: new mongoose.Types.ObjectId(staffId),
+    };
+
+    if (locationId) {
+      filter.location = locationId;
+    }
+
+    const schedules = await StaffSchedule.find(filter)
+      .select("_id startDate dailySchedule")
+      .populate("dailySchedule")
+      .sort({ startDate: -1 });
+
+    const byDate = new Map();
+
+    for (const schedule of schedules) {
+      const workHours = schedule?.dailySchedule?.workHours || [];
+
+      for (const dayItem of workHours) {
+        const dateKey = new Date(dayItem.date).toISOString().split("T")[0];
+
+        if (!byDate.has(dateKey)) {
+          byDate.set(dateKey, {
+            ...dayItem.toObject(),
+            scheduleId: schedule._id,
+          });
+          continue;
+        }
+
+        const existing = byDate.get(dateKey);
+        if (existing?.isDayOff && !dayItem?.isDayOff) {
+          byDate.set(dateKey, {
+            ...dayItem.toObject(),
+            scheduleId: schedule._id,
+          });
+        }
+      }
+    }
+
+    const merged = Array.from(byDate.values()).sort(
+      (a, b) => new Date(a.date) - new Date(b.date),
+    );
+
+    res.status(200).json(merged);
+  } catch (e) {
+    next(e);
+  }
+};
+
+// -------------------------------------------------------------------
+
 // --- POST /api/staff-schedules ---
 export const createSchedule = async (req, res, next) => {
   try {
@@ -172,14 +308,16 @@ export const createSchedule = async (req, res, next) => {
     const {
       startDate,
       endDate,
-      workTime,
-      isDayOff,
-      break1,
+      weeklyWorkingHours,
+      breaks, // Array of breaks
+      break1, // Backward compatibility
       break2,
       break3,
       locationId,
       staffId, // Optional
     } = req.body;
+
+    const resolvedBreaks = breaks || [break1, break2, break3].filter(b => b && b.start && b.end);
 
     if (!locationId) {
       return res.status(400).json({ message: "locationId е задължителен." });
@@ -188,7 +326,7 @@ export const createSchedule = async (req, res, next) => {
     const requestUser = await User.findById(userId);
     if (
       !requestUser ||
-      (requestUser.role !== "staff" && requestUser.role !== "business")
+      !["staff", "business", "manager"].includes(requestUser.role)
     ) {
       return res.status(403).json({
         message:
@@ -202,36 +340,27 @@ export const createSchedule = async (req, res, next) => {
         .json({ message: "Потребителят не е свързан с бизнес." });
     }
 
-    // ✅ ФИКС: Логика за трансформация на isDayOff от обект в масив от стрингове (за DailySchedule)
-    const daysOffObject =
-      Array.isArray(isDayOff) && isDayOff.length > 0
-        ? isDayOff[0]
-        : isDayOff || {};
+    const targetStaffId = staffId || (requestUser.role === "staff" ? userId : null);
 
-    // Трансформираме обекта в масив от стрингове (имена на почивните дни с малки букви)
-    const daysOffArray = Object.keys(daysOffObject).filter(
-      (day) => daysOffObject[day] === true,
-    );
+    // Валидация спрямо локацията
+    const locValidation = await validateLocationHours(locationId, weeklyWorkingHours);
+    if (!locValidation.isValid) return res.status(400).json({ message: locValidation.message });
+
+    // Валидация за конфликти
+    const conflictValidation = await validateScheduleConflicts(targetStaffId, startDate, endDate, weeklyWorkingHours);
+    if (!conflictValidation.isValid) return res.status(400).json({ message: conflictValidation.message });
 
     const dailyScheduleDoc = await createDefaultDailySchedule(
       startDate,
       endDate,
-      workTime,
-      daysOffArray,
-      break1,
-      break2,
-      break3,
+      weeklyWorkingHours,
+      resolvedBreaks,
     );
 
     const newSchedule = new StaffSchedule({
       startDate,
       endDate,
-      workTime,
-      isDayOff,
-      break1,
-      break2,
-      break3,
-      staff: staffId || (requestUser.role === "staff" ? userId : null),
+      staff: targetStaffId,
       location: locationId,
       business: requestUser.businessId,
       dailySchedule: dailyScheduleDoc._id,
@@ -262,7 +391,11 @@ export const updateSchedule = async (req, res, next) => {
     if (
       currentSchedule.staff &&
       currentSchedule.staff.toString() !== userId &&
-      userRole !== "business"
+      userRole !== "business" &&
+      !(
+        userRole === "manager" &&
+        String(currentSchedule.business) === String(req.user?.businessId)
+      )
     ) {
       return res.status(403).json({ message: "Нямаш достъп до този график." });
     }
@@ -278,8 +411,7 @@ export const updateSchedule = async (req, res, next) => {
     const fieldsToTriggerDailyUpdate = [
       "startDate",
       "endDate",
-      "workTime",
-      "isDayOff",
+      "weeklyWorkingHours",
       "break1",
       "break2",
       "break3",
@@ -289,26 +421,35 @@ export const updateSchedule = async (req, res, next) => {
       updateData.hasOwnProperty(field),
     );
 
+    const resolvedBreaks = updateData.breaks || [updateData.break1 || updatedSchedule.break1, updateData.break2 || updatedSchedule.break2, updateData.break3 || updatedSchedule.break3].filter(b => b && b.start && b.end);
+
     if (shouldUpdateDailySchedule) {
-      const isDayOffNew = updateData.isDayOff || updatedSchedule.isDayOff;
-      const daysOffObject =
-        Array.isArray(isDayOffNew) && isDayOffNew.length > 0
-          ? isDayOffNew[0]
-          : isDayOffNew || {};
-      const daysOffArray = Object.keys(daysOffObject).filter(
-        (day) => daysOffObject[day] === true,
-      );
+      const resolvedStartDate = updateData.startDate || updatedSchedule.startDate;
+      const resolvedEndDate = updateData.endDate || updatedSchedule.endDate;
+      const resolvedWeeklyWorkingHours = updateData.weeklyWorkingHours || updatedSchedule.weeklyWorkingHours;
+
+      // Валидация спрямо локацията
+      const locValidation = await validateLocationHours(updatedSchedule.location, resolvedWeeklyWorkingHours);
+      if (!locValidation.isValid) {
+         // Revert the updatedSchedule since we already mutated it above
+         await StaffSchedule.findByIdAndUpdate(id, currentSchedule.toObject());
+         return res.status(400).json({ message: locValidation.message });
+      }
+
+      // Валидация за конфликти
+      const conflictValidation = await validateScheduleConflicts(updatedSchedule.staff, resolvedStartDate, resolvedEndDate, resolvedWeeklyWorkingHours, updatedSchedule._id);
+      if (!conflictValidation.isValid) {
+         await StaffSchedule.findByIdAndUpdate(id, currentSchedule.toObject());
+         return res.status(400).json({ message: conflictValidation.message });
+      }
 
       await DailySchedule.findByIdAndDelete(currentSchedule.dailySchedule);
 
       const newDailyScheduleDoc = await createDefaultDailySchedule(
-        updateData.startDate || updatedSchedule.startDate,
-        updateData.endDate || updatedSchedule.endDate,
-        updateData.workTime || updatedSchedule.workTime,
-        daysOffArray,
-        updateData.break1 || updatedSchedule.break1,
-        updateData.break2 || updatedSchedule.break2,
-        updateData.break3 || updatedSchedule.break3,
+        resolvedStartDate,
+        resolvedEndDate,
+        resolvedWeeklyWorkingHours,
+        resolvedBreaks
       );
 
       await StaffSchedule.updateOne(
@@ -367,6 +508,39 @@ export const updateDailySchedule = async (req, res, next) => {
           .status(404)
           .json({ message: "Денят за редакция не е намерен." });
       }
+
+      const dayName = workHour.day || dailySchedule.workHours[index].day;
+      const validationWeeklyHours = {};
+      const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+      
+      days.forEach(d => {
+        if (d === dayName) {
+          validationWeeklyHours[d] = {
+            isDayOff: workHour.isDayOff,
+            workTime: workHour.workTime,
+            breaks: workHour.breaks
+          };
+        } else {
+          validationWeeklyHours[d] = { isDayOff: true };
+        }
+      });
+
+      // Validate against Location Hours
+      const locValidation = await validateLocationHours(schedule.location, validationWeeklyHours);
+      if (!locValidation.isValid) return res.status(400).json({ message: locValidation.message });
+
+      // Validate against Conflicts with other schedules for this staff member
+      // We limit the range to this specific day to focus on the override conflict.
+      const conflictDate = workHour.date || dailySchedule.workHours[index].date;
+      const conflictValidation = await validateScheduleConflicts(
+        schedule.staff, 
+        conflictDate, 
+        conflictDate, 
+        validationWeeklyHours, 
+        schedule._id
+      );
+      if (!conflictValidation.isValid) return res.status(400).json({ message: conflictValidation.message });
+      // ────────────────────────────────────────────────────
 
       dailySchedule.workHours[index] = {
         ...dailySchedule.workHours[index].toObject(),
@@ -455,11 +629,6 @@ export const applyScheduleToAllStaff = async (req, res, next) => {
         const newStaffSchedule = new StaffSchedule({
           startDate: mainSchedule.startDate,
           endDate: mainSchedule.endDate,
-          workTime: mainSchedule.workTime,
-          isDayOff: mainSchedule.isDayOff,
-          break1: mainSchedule.break1,
-          break2: mainSchedule.break2,
-          break3: mainSchedule.break3,
           staff: staff._id,
           location: mainSchedule.location,
           business: businessId,
@@ -506,6 +675,74 @@ export const deleteSchedule = async (req, res, next) => {
     await DailySchedule.findByIdAndDelete(schedule.dailySchedule);
 
     res.status(200).json({ message: "Графикът е изтрит успешно." });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- GET /api/staff-schedules/daily-view ---
+export const getDailyView = async (req, res, next) => {
+  try {
+    const { locationId, startDate, endDate } = req.query;
+    const userId = req.user?.id || req.user?._id;
+
+    if (!locationId || !startDate || !endDate) {
+      return res.status(400).json({ message: "locationId, startDate и endDate са задължителни." });
+    }
+
+    const requestUser = await User.findById(userId);
+    if (!requestUser || !requestUser.businessId) {
+      return res.status(400).json({ message: "Потребителят не е свързан с бизнес." });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    // Filter StaffSchedules for this location and business
+    const schedules = await StaffSchedule.find({
+      location: locationId,
+      business: requestUser.businessId,
+      startDate: { $lte: end },
+      endDate: { $gte: start }
+    })
+    .populate("staff", "firstName lastName email")
+    .populate("dailySchedule");
+
+    // Grouping by staff
+    const grouped = new Map();
+
+    for (const schedule of schedules) {
+      if (!schedule.dailySchedule || !schedule.dailySchedule.workHours) continue;
+
+      const staffDoc = schedule.staff;
+      const staffId = staffDoc?._id?.toString() || "not-assigned";
+
+      if (!grouped.has(staffId)) {
+        grouped.set(staffId, {
+          staff: staffDoc || { _id: null, firstName: "Not", lastName: "Assigned", email: "" },
+          location: locationId,
+          schedules: []
+        });
+      }
+
+      const filteredWorkHours = schedule.dailySchedule.workHours
+        .filter(day => {
+          const d = new Date(day.date);
+          return d >= start && d <= end;
+        })
+        .map(day => ({
+          ...day.toObject(),
+          staffId: schedule.staff?._id || schedule.staff,
+          scheduleId: schedule._id
+        }));
+
+      grouped.get(staffId).schedules.push({
+        ...schedule.toObject(),
+        dayleschedules: filteredWorkHours
+      });
+    }
+
+    res.status(200).json(Array.from(grouped.values()));
   } catch (e) {
     next(e);
   }

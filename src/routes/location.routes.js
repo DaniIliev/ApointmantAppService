@@ -4,7 +4,9 @@ import {
   createLocation,
   getLocations,
   getLocationById,
+  getLocationWeeklyWorkingHours,
   updateLocation,
+  updateLocationWeeklyWorkingHours,
   deleteLocation,
 } from "../controllers/location.controller.js";
 
@@ -17,6 +19,17 @@ router.get("/", getLocations);
 
 // GET /api/locations/:id
 router.get("/:id", getLocationById);
+
+// GET /api/locations/:id/weekly-hours
+router.get("/:id/weekly-hours", authRequired, getLocationWeeklyWorkingHours);
+
+// PUT /api/locations/:id/weekly-hours
+router.put(
+  "/:id/weekly-hours",
+  authRequired,
+  requireRole("business", "manager"),
+  updateLocationWeeklyWorkingHours,
+);
 
 // POST /api/locations
 router.post(

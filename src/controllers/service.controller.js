@@ -14,6 +14,7 @@ export const createService = async (req, res, next) => {
       category,
       paymentOption,
       locationId,
+      locationIds,
       isGroup,
       capacity,
     } = req.body;
@@ -63,7 +64,7 @@ export const createService = async (req, res, next) => {
       imageUrl,
       staffMembers: parsedStaffIds,
       paymentOption: paymentOption || "cash",
-      locationId,
+      locationIds: locationIds || (locationId ? [locationId] : []),
       isGroup: isGroup === "true" || isGroup === true,
       capacity: Number(capacity) || 1,
     });
@@ -83,7 +84,7 @@ export const listServices = async (req, res, next) => {
     console.log("headerLocationId", headerLocationId);
     console.log("effectiveLocationId", effectiveLocationId);
     const filter = { business: businessId };
-    if (effectiveLocationId) filter.locationId = effectiveLocationId;
+    if (effectiveLocationId) filter.locationIds = effectiveLocationId;
     const services = await Service.find(filter)
       .populate({
         path: "staffMembers",
@@ -109,6 +110,7 @@ export const updateService = async (req, res, next) => {
       staffMembers,
       paymentOption,
       locationId,
+      locationIds,
       isGroup,
       capacity,
     } = req.body;
@@ -144,8 +146,8 @@ export const updateService = async (req, res, next) => {
     if (capacity !== undefined) {
       serviceToUpdate.capacity = Number(capacity) || 1;
     }
-    if (locationId !== undefined) {
-      serviceToUpdate.locationId = locationId || null;
+    if (locationIds !== undefined || locationId !== undefined) {
+      serviceToUpdate.locationIds = locationIds || (locationId ? [locationId] : []);
     }
 
     if (staffMembers) {
