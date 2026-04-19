@@ -39,14 +39,14 @@ const normalizeWeeklyWorkingHours = (payload = {}) => {
 };
 
 const formatScheduleFromWeeklyHours = (weeklyWorkingHours) => {
-  if (!weeklyWorkingHours) return "Няма зададен график";
+  if (!weeklyWorkingHours) return 'Not Set';
 
   const formatTimeRange = (timeRange, isOff) => {
-    if (isOff) return "Почивен Ден";
+    if (isOff) return 'Day Off';
     if (timeRange && timeRange.start && timeRange.end) {
       return `${timeRange.start}-${timeRange.end}`;
     }
-    return "Не е зададено";
+    return 'Not Set';
   };
 
   return {

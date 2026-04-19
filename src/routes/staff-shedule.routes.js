@@ -7,7 +7,6 @@ import {
   updateSchedule,
   updateDailySchedule,
   deleteSchedule,
-  applyScheduleToAllStaff,
   getDailyView,
 } from "../controllers/staffSchedule.controller.js";
 import authMiddleware from "../middlewares/auth.js";
@@ -40,5 +39,4 @@ router
   .get(authMiddleware, getDailySchedule) // Извличане на детайлен дневен график
   .put(authMiddleware, updateDailySchedule); // Обновяване на детайлния дневен график
 
-router.post("/apply-to-all", authMiddleware, applyScheduleToAllStaff);
 export default router;
