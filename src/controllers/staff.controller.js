@@ -45,7 +45,7 @@ export const listBusinessStaff = async (req, res, next) => {
     if (onlyWithServices === "true") {
       const serviceFilter = { business: business._id };
       if (effectiveLocationId) {
-        serviceFilter.locationId = effectiveLocationId;
+        serviceFilter.locationIds = { $in: [effectiveLocationId] };
       }
       const services = await Service.find(serviceFilter).select("staffMembers");
 
