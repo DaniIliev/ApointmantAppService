@@ -16,7 +16,10 @@ export const getBoards = async (req, res) => {
     const { businessId } = req.query;
 
     if (!businessId) {
-      return res.status(400).json({ message: "Business ID is required" });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "Business ID is required." 
+      });
     }
 
     const boards = await KanbanBoard.find({ business: businessId })
@@ -27,7 +30,10 @@ export const getBoards = async (req, res) => {
     res.status(200).json(boards);
   } catch (error) {
     console.error("Error fetching boards:", error);
-    res.status(500).json({ message: "Failed to fetch boards" });
+    res.status(500).json({ 
+      errorCode: "FETCH_BOARDS_FAILED",
+      message: "Failed to fetch boards." 
+    });
   }
 };
 
@@ -40,7 +46,10 @@ export const getBoardById = async (req, res) => {
       .populate("members", "firstName lastName email avatar");
 
     if (!board) {
-      return res.status(404).json({ message: "Board not found" });
+      return res.status(404).json({ 
+        errorCode: "BOARD_NOT_FOUND",
+        message: "Board not found." 
+      });
     }
 
     // Get all columns for this board
@@ -69,7 +78,10 @@ export const getBoardById = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching board:", error);
-    res.status(500).json({ message: "Failed to fetch board" });
+    res.status(500).json({ 
+      errorCode: "FETCH_BOARD_FAILED",
+      message: "Failed to fetch board." 
+    });
   }
 };
 
@@ -79,23 +91,30 @@ export const createBoard = async (req, res) => {
     const userId = req.user.id;
 
     if (!title || !businessId) {
-      return res
-        .status(400)
-        .json({ message: "Title and business ID are required" });
+      return res.status(400)
+        .json({ 
+          errorCode: "MISSING_REQUIRED_FIELDS",
+          message: "Title and business ID are required." 
+        });
     }
 
     // Verify business exists and user has access
     const business = await Business.findById(businessId);
     if (!business) {
-      return res.status(404).json({ message: "Business not found" });
+      return res.status(404).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found." 
+      });
     }
 
     // Verify user is part of the business
     const user = await User.findById(userId);
     if (user.businessId?.toString() !== businessId) {
-      return res
-        .status(403)
-        .json({ message: "You don't have access to this business" });
+      return res.status(403)
+        .json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "You don't have access to this business." 
+        });
     }
 
     const board = await KanbanBoard.create({
@@ -110,10 +129,17 @@ export const createBoard = async (req, res) => {
       .populate("createdBy", "firstName lastName email avatar")
       .populate("members", "firstName lastName email avatar");
 
-    res.status(201).json(populatedBoard);
+    res.status(201).json({
+      message: "Board created successfully.",
+      messageCode: "BOARD_CREATED",
+      data: populatedBoard
+    });
   } catch (error) {
     console.error("Error creating board:", error);
-    res.status(500).json({ message: "Failed to create board" });
+    res.status(500).json({ 
+      errorCode: "CREATE_BOARD_FAILED",
+      message: "Failed to create board." 
+    });
   }
 };
 
@@ -124,7 +150,10 @@ export const updateBoard = async (req, res) => {
 
     const board = await KanbanBoard.findById(id);
     if (!board) {
-      return res.status(404).json({ message: "Board not found" });
+      return res.status(404).json({ 
+        errorCode: "BOARD_NOT_FOUND",
+        message: "Board not found." 
+      });
     }
 
     if (title) board.title = title;
@@ -137,10 +166,17 @@ export const updateBoard = async (req, res) => {
       .populate("createdBy", "firstName lastName email avatar")
       .populate("members", "firstName lastName email avatar");
 
-    res.status(200).json(updatedBoard);
+    res.status(200).json({
+      message: "Board updated successfully.",
+      messageCode: "BOARD_UPDATED",
+      data: updatedBoard
+    });
   } catch (error) {
     console.error("Error updating board:", error);
-    res.status(500).json({ message: "Failed to update board" });
+    res.status(500).json({ 
+      errorCode: "UPDATE_BOARD_FAILED",
+      message: "Failed to update board." 
+    });
   }
 };
 
@@ -150,7 +186,10 @@ export const deleteBoard = async (req, res) => {
 
     const board = await KanbanBoard.findById(id);
     if (!board) {
-      return res.status(404).json({ message: "Board not found" });
+      return res.status(404).json({ 
+        errorCode: "BOARD_NOT_FOUND",
+        message: "Board not found." 
+      });
     }
 
     // Delete all columns and cards associated with this board
@@ -161,10 +200,16 @@ export const deleteBoard = async (req, res) => {
     await KanbanColumn.deleteMany({ boardId: id });
     await KanbanBoard.findByIdAndDelete(id);
 
-    res.status(200).json({ message: "Board deleted successfully" });
+    res.status(200).json({ 
+      message: "Board deleted successfully.",
+      messageCode: "BOARD_DELETED"
+    });
   } catch (error) {
     console.error("Error deleting board:", error);
-    res.status(500).json({ message: "Failed to delete board" });
+    res.status(500).json({ 
+      errorCode: "DELETE_BOARD_FAILED",
+      message: "Failed to delete board." 
+    });
   }
 };
 
@@ -175,9 +220,11 @@ export const createColumn = async (req, res) => {
     const { title, color, boardId, limit } = req.body;
 
     if (!title || !color || !boardId) {
-      return res
-        .status(400)
-        .json({ message: "Title, color, and board ID are required" });
+      return res.status(400)
+        .json({ 
+          errorCode: "MISSING_REQUIRED_FIELDS",
+          message: "Title, color, and board ID are required." 
+        });
     }
 
     // Get the current max order for this board
@@ -194,10 +241,17 @@ export const createColumn = async (req, res) => {
       boardId,
     });
 
-    res.status(201).json(column);
+    res.status(201).json({
+      message: "Column created successfully.",
+      messageCode: "COLUMN_CREATED",
+      data: column
+    });
   } catch (error) {
     console.error("Error creating column:", error);
-    res.status(500).json({ message: "Failed to create column" });
+    res.status(500).json({ 
+      errorCode: "CREATE_COLUMN_FAILED",
+      message: "Failed to create column." 
+    });
   }
 };
 
@@ -208,7 +262,10 @@ export const updateColumn = async (req, res) => {
 
     const column = await KanbanColumn.findById(id);
     if (!column) {
-      return res.status(404).json({ message: "Column not found" });
+      return res.status(404).json({ 
+        errorCode: "COLUMN_NOT_FOUND",
+        message: "Column not found." 
+      });
     }
 
     if (title) column.title = title;
@@ -218,10 +275,17 @@ export const updateColumn = async (req, res) => {
 
     await column.save();
 
-    res.status(200).json(column);
+    res.status(200).json({
+      message: "Column updated successfully.",
+      messageCode: "COLUMN_UPDATED",
+      data: column
+    });
   } catch (error) {
     console.error("Error updating column:", error);
-    res.status(500).json({ message: "Failed to update column" });
+    res.status(500).json({ 
+      errorCode: "UPDATE_COLUMN_FAILED",
+      message: "Failed to update column." 
+    });
   }
 };
 
@@ -231,17 +295,26 @@ export const deleteColumn = async (req, res) => {
 
     const column = await KanbanColumn.findById(id);
     if (!column) {
-      return res.status(404).json({ message: "Column not found" });
+      return res.status(404).json({ 
+        errorCode: "COLUMN_NOT_FOUND",
+        message: "Column not found." 
+      });
     }
 
     // Delete all cards in this column
     await KanbanCard.deleteMany({ columnId: id });
     await KanbanColumn.findByIdAndDelete(id);
 
-    res.status(200).json({ message: "Column deleted successfully" });
+    res.status(200).json({ 
+      message: "Column deleted successfully.",
+      messageCode: "COLUMN_DELETED"
+    });
   } catch (error) {
     console.error("Error deleting column:", error);
-    res.status(500).json({ message: "Failed to delete column" });
+    res.status(500).json({ 
+      errorCode: "DELETE_COLUMN_FAILED",
+      message: "Failed to delete column." 
+    });
   }
 };
 
@@ -250,7 +323,10 @@ export const reorderColumns = async (req, res) => {
     const { columns } = req.body;
 
     if (!Array.isArray(columns)) {
-      return res.status(400).json({ message: "Columns array is required" });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "Columns array is required." 
+      });
     }
 
     // Update order for each column
@@ -260,10 +336,16 @@ export const reorderColumns = async (req, res) => {
 
     await Promise.all(updates);
 
-    res.status(200).json({ message: "Columns reordered successfully" });
+    res.status(200).json({ 
+      message: "Columns reordered successfully.",
+      messageCode: "COLUMNS_REORDERED"
+    });
   } catch (error) {
     console.error("Error reordering columns:", error);
-    res.status(500).json({ message: "Failed to reorder columns" });
+    res.status(500).json({ 
+      errorCode: "REORDER_COLUMNS_FAILED",
+      message: "Failed to reorder columns." 
+    });
   }
 };
 
@@ -284,21 +366,29 @@ export const createCard = async (req, res) => {
     const userId = req.user.id;
 
     if (!title || !columnId) {
-      return res
-        .status(400)
-        .json({ message: "Title and column ID are required" });
+      return res.status(400)
+        .json({ 
+          errorCode: "MISSING_REQUIRED_FIELDS",
+          message: "Title and column ID are required." 
+        });
     }
 
     // Verify column exists
     const column = await KanbanColumn.findById(columnId);
     if (!column) {
-      return res.status(404).json({ message: "Column not found" });
+      return res.status(404).json({ 
+        errorCode: "COLUMN_NOT_FOUND",
+        message: "Column not found." 
+      });
     }
 
     // Get board and verify business context
     const board = await KanbanBoard.findById(column.boardId);
     if (!board) {
-      return res.status(404).json({ message: "Board not found" });
+      return res.status(404).json({ 
+        errorCode: "BOARD_NOT_FOUND",
+        message: "Board not found." 
+      });
     }
 
     // Validate assigned users are from the same business
@@ -364,10 +454,17 @@ export const createCard = async (req, res) => {
       .populate("assignedUsers", "firstName lastName email avatar")
       .populate("createdBy", "firstName lastName email avatar");
 
-    res.status(201).json(populatedCard);
+    res.status(201).json({
+      message: "Card created successfully.",
+      messageCode: "CARD_CREATED",
+      data: populatedCard
+    });
   } catch (error) {
     console.error("Error creating card:", error);
-    res.status(500).json({ message: "Failed to create card" });
+    res.status(500).json({ 
+      errorCode: "CREATE_CARD_FAILED",
+      message: "Failed to create card." 
+    });
   }
 };
 
@@ -388,14 +485,20 @@ export const updateCard = async (req, res) => {
 
     const card = await KanbanCard.findById(id);
     if (!card) {
-      return res.status(404).json({ message: "Card not found" });
+      return res.status(404).json({ 
+        errorCode: "CARD_NOT_FOUND",
+        message: "Card not found." 
+      });
     }
 
     // If columnId is changing, verify it exists
     if (columnId && columnId !== card.columnId.toString()) {
       const column = await KanbanColumn.findById(columnId);
       if (!column) {
-        return res.status(404).json({ message: "Column not found" });
+        return res.status(404).json({ 
+          errorCode: "COLUMN_NOT_FOUND",
+          message: "Column not found." 
+        });
       }
       card.columnId = columnId;
     }
@@ -413,7 +516,8 @@ export const updateCard = async (req, res) => {
 
       if (users.length !== assignedUsers.length) {
         return res.status(400).json({
-          message: "All assigned users must be members of this business",
+          errorCode: "INVALID_ASSIGNED_USERS",
+          message: "All assigned users must be members of this business.",
         });
       }
 
@@ -466,10 +570,17 @@ export const updateCard = async (req, res) => {
       );
     }
 
-    res.status(200).json(updatedCard);
+    res.status(200).json({
+      message: "Card updated successfully.",
+      messageCode: "CARD_UPDATED",
+      data: updatedCard
+    });
   } catch (error) {
     console.error("Error updating card:", error);
-    res.status(500).json({ message: "Failed to update card" });
+    res.status(500).json({ 
+      errorCode: "UPDATE_CARD_FAILED",
+      message: "Failed to update card." 
+    });
   }
 };
 
@@ -479,15 +590,24 @@ export const deleteCard = async (req, res) => {
 
     const card = await KanbanCard.findById(id);
     if (!card) {
-      return res.status(404).json({ message: "Card not found" });
+      return res.status(404).json({ 
+        errorCode: "CARD_NOT_FOUND",
+        message: "Card not found." 
+      });
     }
 
     await KanbanCard.findByIdAndDelete(id);
 
-    res.status(200).json({ message: "Card deleted successfully" });
+    res.status(200).json({ 
+      message: "Card deleted successfully.",
+      messageCode: "CARD_DELETED"
+    });
   } catch (error) {
     console.error("Error deleting card:", error);
-    res.status(500).json({ message: "Failed to delete card" });
+    res.status(500).json({ 
+      errorCode: "DELETE_CARD_FAILED",
+      message: "Failed to delete card." 
+    });
   }
 };
 
@@ -496,7 +616,10 @@ export const reorderCards = async (req, res) => {
     const { cards } = req.body;
 
     if (!Array.isArray(cards)) {
-      return res.status(400).json({ message: "Cards array is required" });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "Cards array is required." 
+      });
     }
 
     // Update order and columnId for each card
@@ -509,10 +632,16 @@ export const reorderCards = async (req, res) => {
 
     await Promise.all(updates);
 
-    res.status(200).json({ message: "Cards reordered successfully" });
+    res.status(200).json({ 
+      message: "Cards reordered successfully.",
+      messageCode: "CARDS_REORDERED"
+    });
   } catch (error) {
     console.error("Error reordering cards:", error);
-    res.status(500).json({ message: "Failed to reorder cards" });
+    res.status(500).json({ 
+      errorCode: "REORDER_CARDS_FAILED",
+      message: "Failed to reorder cards." 
+    });
   }
 };
 
@@ -525,12 +654,18 @@ export const addComment = async (req, res) => {
     const userId = req.user.id;
 
     if (!text) {
-      return res.status(400).json({ message: "Comment text is required" });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "Comment text is required." 
+      });
     }
 
     const card = await KanbanCard.findById(cardId);
     if (!card) {
-      return res.status(404).json({ message: "Card not found" });
+      return res.status(404).json({ 
+        errorCode: "CARD_NOT_FOUND",
+        message: "Card not found." 
+      });
     }
 
     const newComment = {
@@ -559,7 +694,10 @@ export const addComment = async (req, res) => {
       };
 
       if (!addReplyToComment(card.comments)) {
-        return res.status(404).json({ message: "Parent comment not found" });
+        return res.status(404).json({ 
+          errorCode: "COMMENT_NOT_FOUND",
+          message: "Parent comment not found." 
+        });
       }
     }
 
@@ -571,10 +709,17 @@ export const addComment = async (req, res) => {
       .populate("assignedUsers", "firstName lastName email avatar")
       .populate("createdBy", "firstName lastName email avatar");
 
-    res.status(201).json(updatedCard);
+    res.status(201).json({
+      message: "Comment added successfully.",
+      messageCode: "COMMENT_ADDED",
+      data: updatedCard
+    });
   } catch (error) {
     console.error("Error adding comment:", error);
-    res.status(500).json({ message: "Failed to add comment" });
+    res.status(500).json({ 
+      errorCode: "ADD_COMMENT_FAILED",
+      message: "Failed to add comment." 
+    });
   }
 };
 
@@ -584,7 +729,10 @@ export const deleteComment = async (req, res) => {
 
     const card = await KanbanCard.findById(cardId);
     if (!card) {
-      return res.status(404).json({ message: "Card not found" });
+      return res.status(404).json({ 
+        errorCode: "CARD_NOT_FOUND",
+        message: "Card not found." 
+      });
     }
 
     // Remove comment and its replies
@@ -608,10 +756,17 @@ export const deleteComment = async (req, res) => {
       .populate("assignedUsers", "firstName lastName email avatar")
       .populate("createdBy", "firstName lastName email avatar");
 
-    res.status(200).json(updatedCard);
+    res.status(200).json({
+      message: "Comment deleted successfully.",
+      messageCode: "COMMENT_DELETED",
+      data: updatedCard
+    });
   } catch (error) {
     console.error("Error deleting comment:", error);
-    res.status(500).json({ message: "Failed to delete comment" });
+    res.status(500).json({ 
+      errorCode: "DELETE_COMMENT_FAILED",
+      message: "Failed to delete comment." 
+    });
   }
 };
 
@@ -624,12 +779,18 @@ export const addAttachment = async (req, res) => {
     const userId = req.user.id;
 
     if (!fileName || !fileUrl || !fileSize || !fileType) {
-      return res.status(400).json({ message: "All file details are required" });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "All file details are required." 
+      });
     }
 
     const card = await KanbanCard.findById(cardId);
     if (!card) {
-      return res.status(404).json({ message: "Card not found" });
+      return res.status(404).json({ 
+        errorCode: "CARD_NOT_FOUND",
+        message: "Card not found." 
+      });
     }
 
     const newAttachment = {
@@ -651,10 +812,17 @@ export const addAttachment = async (req, res) => {
       .populate("assignedUsers", "firstName lastName email avatar")
       .populate("createdBy", "firstName lastName email avatar");
 
-    res.status(201).json(updatedCard);
+    res.status(201).json({
+      message: "Attachment added successfully.",
+      messageCode: "ATTACHMENT_ADDED",
+      data: updatedCard
+    });
   } catch (error) {
     console.error("Error adding attachment:", error);
-    res.status(500).json({ message: "Failed to add attachment" });
+    res.status(500).json({ 
+      errorCode: "ADD_ATTACHMENT_FAILED",
+      message: "Failed to add attachment." 
+    });
   }
 };
 
@@ -664,7 +832,10 @@ export const deleteAttachment = async (req, res) => {
 
     const card = await KanbanCard.findById(cardId);
     if (!card) {
-      return res.status(404).json({ message: "Card not found" });
+      return res.status(404).json({ 
+        errorCode: "CARD_NOT_FOUND",
+        message: "Card not found." 
+      });
     }
 
     card.attachments = card.attachments.filter(
@@ -677,10 +848,17 @@ export const deleteAttachment = async (req, res) => {
       .populate("assignedUsers", "firstName lastName email avatar")
       .populate("createdBy", "firstName lastName email avatar");
 
-    res.status(200).json(updatedCard);
+    res.status(200).json({
+      message: "Attachment deleted successfully.",
+      messageCode: "ATTACHMENT_DELETED",
+      data: updatedCard
+    });
   } catch (error) {
     console.error("Error deleting attachment:", error);
-    res.status(500).json({ message: "Failed to delete attachment" });
+    res.status(500).json({ 
+      errorCode: "DELETE_ATTACHMENT_FAILED",
+      message: "Failed to delete attachment." 
+    });
   }
 };
 
@@ -691,7 +869,10 @@ export const getBusinessMembers = async (req, res) => {
     const { businessId } = req.params;
 
     if (!businessId) {
-      return res.status(400).json({ message: "Business ID is required" });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "Business ID is required." 
+      });
     }
 
     const members = await User.find({ businessId })
@@ -701,6 +882,9 @@ export const getBusinessMembers = async (req, res) => {
     res.status(200).json(members);
   } catch (error) {
     console.error("Error fetching business members:", error);
-    res.status(500).json({ message: "Failed to fetch business members" });
+    res.status(500).json({ 
+      errorCode: "FETCH_BUSINESS_MEMBERS_FAILED",
+      message: "Failed to fetch business members." 
+    });
   }
 };

@@ -97,7 +97,10 @@ export const getDashboardData = async (req, res) => {
       // For business owner or staff, we show their assigned appointments
       filter.staff = userId;
     } else {
-      return res.status(403).json({ message: "Invalid user role" });
+      return res.status(403).json({ 
+        errorCode: "INVALID_USER_ROLE",
+        message: "Invalid user role." 
+      });
     }
 
     const appointments = await Appointment.find(filter).populate(
@@ -115,7 +118,11 @@ export const getDashboardData = async (req, res) => {
 
     res.json(transformedAppointments);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error });
+    res.status(500).json({ 
+      errorCode: "SERVER_ERROR",
+      message: "Server error.", 
+      error 
+    });
   }
 };
 
@@ -133,30 +140,46 @@ export const createWorkBlockAppointment = async (req, res, next) => {
 
     if (!business || !staff || !dateTime || !durationMinutes) {
       return res.status(400).json({
+        errorCode: "MISSING_REQUIRED_FIELDS",
         message: "Business, staff, dateTime and durationMinutes are required.",
       });
     }
 
     if (!req.user || !["business", "staff"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Нямате достъп." });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "Access denied." 
+      });
     }
 
     const biz = await Business.findById(business);
-    if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
+    if (!biz) return res.status(404).json({ 
+      errorCode: "BUSINESS_NOT_FOUND",
+      message: "Business not found." 
+    });
 
     if (req.user.role === "business") {
       if (String(biz.owner) !== String(req.user.id)) {
-        return res.status(403).json({ message: "Не сте собственик" });
+        return res.status(403).json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "You are not the owner." 
+        });
       }
     } else if (String(req.user.businessId) !== String(biz._id)) {
       return res
         .status(403)
-        .json({ message: "Не сте служител на този бизнес" });
+        .json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "You are not an employee of this business." 
+        });
     }
 
     const staffUser = await User.findById(staff);
     if (!staffUser || String(staffUser.businessId) !== String(biz._id)) {
-      return res.status(400).json({ message: "Невалиден служител" });
+      return res.status(400).json({ 
+        errorCode: "INVALID_STAFF",
+        message: "Invalid staff member." 
+      });
     }
 
     const blockTitle = title?.trim() || "Работен ангажимент";
@@ -190,7 +213,11 @@ export const createWorkBlockAppointment = async (req, res, next) => {
       .populate("business service client")
       .populate("staff", "firstName lastName email");
 
-    res.status(201).json(serializeAppointment(populated));
+    res.status(201).json({
+      message: "Work block created successfully.",
+      messageCode: "WORK_BLOCK_CREATED",
+      data: serializeAppointment(populated)
+    });
   } catch (e) {
     next(e);
   }
@@ -211,18 +238,25 @@ export const createAppointment = async (req, res, next) => {
     } = req.body;
 
     const biz = await Business.findById(business);
-    if (!biz) return res.status(404).json({ message: "Бизнес не е намерен" });
+    if (!biz) return res.status(404).json({ 
+      errorCode: "BUSINESS_NOT_FOUND",
+      message: "Business not found." 
+    });
 
     const srv = await Service.findById(service);
     if (!srv || String(srv.business) !== String(biz._id)) {
       return res
         .status(400)
-        .json({ message: "Невалидна услуга за този бизнес" });
+        .json({ 
+          errorCode: "INVALID_SERVICE",
+          message: "Invalid service for this business." 
+        });
     }
 
     if (!srv.staffMembers.some((id) => String(id) === String(staff))) {
       return res.status(400).json({
-        message: "Избраният служител не може да извърши тази услуга.",
+        errorCode: "INVALID_STAFF_FOR_SERVICE",
+        message: "The selected staff member cannot perform this service.",
       });
     }
 
@@ -248,7 +282,10 @@ export const createAppointment = async (req, res, next) => {
     if (!isSlotAvailable) {
       return res
         .status(400)
-        .json({ message: "Избраният час е зает или невалиден." });
+        .json({ 
+          errorCode: "SLOT_UNAVAILABLE",
+          message: "The selected slot is busy or invalid." 
+        });
     }
 
     // Calculate appointment time in app timezone (Sofia) - will be stored as UTC in DB
@@ -345,7 +382,11 @@ export const createAppointment = async (req, res, next) => {
       _id: newAlert._id,
     });
 
-    res.status(201).json(appointment);
+    res.status(201).json({
+      message: "Appointment created successfully.",
+      messageCode: "APPOINTMENT_CREATED",
+      data: appointment
+    });
   } catch (e) {
     next(e);
   }
@@ -356,9 +397,15 @@ export const listBusinessAppointments = async (req, res, next) => {
     const { businessId } = req.params;
     const { locationId } = req.query;
     const biz = await Business.findById(businessId);
-    if (!biz) return res.status(404).json({ message: "Business не е намерен" });
+    if (!biz) return res.status(404).json({ 
+      errorCode: "BUSINESS_NOT_FOUND",
+      message: "Business not found." 
+    });
     if (String(biz.owner) !== req.user.id)
-      return res.status(403).json({ message: "Не сте собственик" });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You are not the owner." 
+      });
 
     const filter = { business: businessId };
     if (locationId) filter.locationId = locationId;
@@ -383,7 +430,10 @@ export const updateAppointmentStatus = async (req, res, next) => {
 
     const appt = await Appointment.findById(id).populate("business service");
     if (!appt)
-      return res.status(404).json({ message: "Appointment не е намерен" });
+      return res.status(404).json({ 
+        errorCode: "APPOINTMENT_NOT_FOUND",
+        message: "Appointment not found." 
+      });
 
     // if (String(appt.business.owner) !== req.user.id) {
     //   return res.status(403).json({ message: "Не сте собственик" });
@@ -392,7 +442,8 @@ export const updateAppointmentStatus = async (req, res, next) => {
     // Check if appointment is cancelled
     if (appt.status === "cancelled") {
       return res.status(400).json({
-        message: "Не може да се промени статусът на отменена встреча",
+        errorCode: "CANNOT_CHANGE_CANCELLED_APPOINTMENT",
+        message: "Cannot change the status of a cancelled appointment.",
       });
     }
 
@@ -487,7 +538,11 @@ export const updateAppointmentStatus = async (req, res, next) => {
       );
     }
 
-    res.json(appt);
+    res.json({
+      message: "Appointment status updated successfully.",
+      messageCode: "APPOINTMENT_STATUS_UPDATED",
+      data: appt
+    });
   } catch (e) {
     next(e);
   }
@@ -508,12 +563,18 @@ export const updateAppointment = async (req, res, next) => {
     // Find the existing appointment
     const appt = await Appointment.findById(id).populate("business service");
     if (!appt) {
-      return res.status(404).json({ message: "Appointment не е намерен" });
+      return res.status(404).json({ 
+        errorCode: "APPOINTMENT_NOT_FOUND",
+        message: "Appointment not found." 
+      });
     }
 
     // Check ownership
     if (String(appt.business.owner) !== req.user.id) {
-      return res.status(403).json({ message: "Не сте собственик" });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You are not the owner." 
+      });
     }
 
     // Get service info (use new service if provided, otherwise use existing)
@@ -521,7 +582,10 @@ export const updateAppointment = async (req, res, next) => {
       ? await Service.findById(serviceId)
       : await Service.findById(appt.service._id);
     if (!srv) {
-      return res.status(404).json({ message: "Услугата не е намерена" });
+      return res.status(404).json({ 
+        errorCode: "SERVICE_NOT_FOUND",
+        message: "Service not found." 
+      });
     }
 
     // If staff is being changed or dateTime is being changed, validate availability
@@ -552,8 +616,10 @@ export const updateAppointment = async (req, res, next) => {
 
       if (!isSlotAvailable) {
         return res
-          .status(400)
-          .json({ message: "Избраният час е зает или невалиден." });
+          .json({ 
+            errorCode: "SLOT_UNAVAILABLE",
+            message: "The selected slot is busy or invalid." 
+          });
       }
 
       // Update appointment time
@@ -605,7 +671,11 @@ export const updateAppointment = async (req, res, next) => {
       });
     }
 
-    res.json(appt);
+    res.json({
+      message: "Appointment updated successfully.",
+      messageCode: "APPOINTMENT_UPDATED",
+      data: appt
+    });
   } catch (e) {
     next(e);
   }
@@ -618,8 +688,10 @@ export const getFreeSlots = async (req, res, next) => {
 
     if (!staffId || !date || !serviceId) {
       return res
-        .status(400)
-        .json({ message: "Липсват задължителни параметри." });
+        .json({ 
+          errorCode: "MISSING_REQUIRED_FIELDS",
+          message: "Missing required parameters." 
+        });
     }
 
     // Availability must never be cached; edge/CDN caches can return stale slots.
@@ -632,7 +704,10 @@ export const getFreeSlots = async (req, res, next) => {
 
     const service = await Service.findById(serviceId);
     if (!service) {
-      return res.status(404).json({ message: "Услугата не е намерена." });
+      return res.status(404).json({ 
+        errorCode: "SERVICE_NOT_FOUND",
+        message: "Service not found." 
+      });
     }
     const serviceDuration = service.duration;
 
@@ -658,7 +733,10 @@ export const getClosestAvailableSlot = async (req, res, next) => {
   try {
     const { staffId, serviceId, date, locationId } = req.query;
     if (!staffId || !serviceId) {
-      return res.status(400).json({ message: "Missing required parameters." });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "Missing required parameters." 
+      });
     }
 
     // Availability must never be cached; edge caches were serving stale data.
@@ -671,7 +749,10 @@ export const getClosestAvailableSlot = async (req, res, next) => {
 
     const service = await Service.findById(serviceId);
     if (!service) {
-      return res.status(404).json({ message: "Service not found." });
+      return res.status(404).json({ 
+        errorCode: "SERVICE_NOT_FOUND",
+        message: "Service not found." 
+      });
     }
     const serviceDuration = service.duration;
 
@@ -751,6 +832,7 @@ export const getClosestAvailableSlot = async (req, res, next) => {
     } else {
       res.status(200).json({
         slot: null,
+        errorCode: "NO_SLOTS_FOUND",
         message: "No available slots found in the next 50 days.",
       });
     }
@@ -770,7 +852,10 @@ export const getAppointmentById = async (req, res, next) => {
       .populate("client", "email firstName lastName phone");
 
     if (!appointment) {
-      return res.status(404).json({ message: "Appointment не е намерен" });
+      return res.status(404).json({ 
+        errorCode: "APPOINTMENT_NOT_FOUND",
+        message: "Appointment not found." 
+      });
     }
 
     res.json(serializeAppointment(appointment));
@@ -788,7 +873,10 @@ export const deleteAppointment = async (req, res, next) => {
     const appointment = await Appointment.findById(id);
 
     if (!appointment) {
-      return res.status(404).json({ message: "Appointment not found" });
+      return res.status(404).json({ 
+        errorCode: "APPOINTMENT_NOT_FOUND",
+        message: "Appointment not found." 
+      });
     }
 
     // Check authorization - only business owner, staff assigned to appointment, or admin can delete
@@ -799,24 +887,33 @@ export const deleteAppointment = async (req, res, next) => {
         appointment.business.toString() !== business._id.toString()
       ) {
         return res
-          .status(403)
-          .json({ message: "Unauthorized to delete this appointment" });
+          .json({ 
+            errorCode: "UNAUTHORIZED_ACTION",
+            message: "Unauthorized to delete this appointment." 
+          });
       }
     } else if (userRole === "staff") {
       if (appointment.staff.toString() !== userId) {
         return res
-          .status(403)
-          .json({ message: "Unauthorized to delete this appointment" });
+          .json({ 
+            errorCode: "UNAUTHORIZED_ACTION",
+            message: "Unauthorized to delete this appointment." 
+          });
       }
     } else if (userRole !== "admin") {
       return res
-        .status(403)
-        .json({ message: "Unauthorized to delete appointments" });
+        .json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "Unauthorized to delete appointments." 
+        });
     }
 
     await Appointment.findByIdAndDelete(id);
 
-    res.status(200).json({ message: "Appointment deleted successfully" });
+    res.status(200).json({ 
+      message: "Appointment deleted successfully.",
+      messageCode: "APPOINTMENT_DELETED" 
+    });
   } catch (e) {
     next(e);
   }

@@ -35,12 +35,18 @@ export const markAlertAsRead = async (req, res, next) => {
     );
 
     if (!alert) {
-      return res
-        .status(404)
-        .json({ message: "Alert not found or access denied." });
+      return res.status(404)
+        .json({ 
+          errorCode: "ALERT_NOT_FOUND",
+          message: "Alert not found or access denied." 
+        });
     }
 
-    res.status(200).json(alert);
+    res.status(200).json({
+      message: "Alert marked as read.",
+      messageCode: "ALERT_READ",
+      data: alert
+    });
   } catch (error) {
     next(error);
   }
@@ -52,10 +58,16 @@ export const deleteAlert = async (req, res, next) => {
     const alert = await Alert.findByIdAndDelete(id);
 
     if (!alert) {
-      return res.status(404).json({ message: "Alert не е намерена." });
+      return res.status(404).json({ 
+        errorCode: "ALERT_NOT_FOUND",
+        message: "Alert not found." 
+      });
     }
 
-    res.status(200).json({ message: "Alert изтрита успешно." });
+    res.status(200).json({ 
+      message: "Alert deleted successfully.",
+      messageCode: "ALERT_DELETED"
+    });
   } catch (e) {
     next(e);
   }

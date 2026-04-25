@@ -127,7 +127,10 @@ export const createLocation = async (req, res, next) => {
     console.log("req.user", req.user);
     const business = await findBusinessForWrite(req);
     if (!business) {
-      return res.status(404).json({ message: "Бизнес не е намерен" });
+      return res.status(404).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found." 
+      });
     }
 
     const location = await Location.create({
@@ -144,7 +147,11 @@ export const createLocation = async (req, res, next) => {
       weeklyWorkingHours: getDefaultWeeklyWorkingHours(),
     });
 
-    res.status(201).json(location);
+    res.status(201).json({
+      message: "Location created successfully.",
+      messageCode: "LOCATION_CREATED",
+      data: location
+    });
   } catch (error) {
     next(error);
   }
@@ -177,7 +184,10 @@ export const getLocationById = async (req, res, next) => {
   try {
     const location = await Location.findById(req.params.id).lean();
     if (!location) {
-      return res.status(404).json({ message: "Локацията не е намерена" });
+      return res.status(404).json({ 
+        errorCode: "LOCATION_NOT_FOUND",
+        message: "Location not found." 
+      });
     }
 
     const weeklyWorkingHours = normalizeWeeklyWorkingHours(
@@ -198,7 +208,10 @@ export const getLocationWeeklyWorkingHours = async (req, res, next) => {
   try {
     const location = await Location.findById(req.params.id).lean();
     if (!location) {
-      return res.status(404).json({ message: "Локацията не е намерена" });
+      return res.status(404).json({ 
+        errorCode: "LOCATION_NOT_FOUND",
+        message: "Location not found." 
+      });
     }
 
     const weeklyWorkingHours = normalizeWeeklyWorkingHours(
@@ -219,7 +232,10 @@ export const updateLocationWeeklyWorkingHours = async (req, res, next) => {
     const { id } = req.params;
     const location = await Location.findById(id);
     if (!location) {
-      return res.status(404).json({ message: "Локацията не е намерена" });
+      return res.status(404).json({ 
+        errorCode: "LOCATION_NOT_FOUND",
+        message: "Location not found." 
+      });
     }
 
     const isBusinessOwner =
@@ -231,7 +247,10 @@ export const updateLocationWeeklyWorkingHours = async (req, res, next) => {
     const isManagerAllowed = await canManagerEditLocation(req, location);
 
     if (!isBusinessOwner && !isManagerAllowed) {
-      return res.status(403).json({ message: "Нямате права за тази локация" });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You do not have permission for this location." 
+      });
     }
 
     const weeklyWorkingHours = normalizeWeeklyWorkingHours(
@@ -242,9 +261,13 @@ export const updateLocationWeeklyWorkingHours = async (req, res, next) => {
     await location.save();
 
     res.json({
-      locationId: location._id,
-      weeklyWorkingHours,
-      schedule: formatScheduleFromWeeklyHours(weeklyWorkingHours),
+      message: "Weekly working hours updated successfully.",
+      messageCode: "LOCATION_HOURS_UPDATED",
+      data: {
+        locationId: location._id,
+        weeklyWorkingHours,
+        schedule: formatScheduleFromWeeklyHours(weeklyWorkingHours),
+      }
     });
   } catch (error) {
     next(error);
@@ -257,7 +280,10 @@ export const updateLocation = async (req, res, next) => {
     // Verify ownership
     const location = await Location.findById(id);
     if (!location) {
-      return res.status(404).json({ message: "Локацията не е намерена" });
+      return res.status(404).json({ 
+        errorCode: "LOCATION_NOT_FOUND",
+        message: "Location not found." 
+      });
     }
 
     const isBusinessOwner =
@@ -269,7 +295,10 @@ export const updateLocation = async (req, res, next) => {
     const isManagerAllowed = await canManagerEditLocation(req, location);
 
     if (!isBusinessOwner && !isManagerAllowed) {
-      return res.status(403).json({ message: "Нямате права за тази локация" });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You do not have permission for this location." 
+      });
     }
 
     const updateData = { ...req.body };
@@ -283,7 +312,11 @@ export const updateLocation = async (req, res, next) => {
       { new: true, runValidators: true },
     ).lean();
 
-    res.json(updatedLocation);
+    res.json({
+      message: "Location updated successfully.",
+      messageCode: "LOCATION_UPDATED",
+      data: updatedLocation
+    });
   } catch (error) {
     next(error);
   }
@@ -294,7 +327,10 @@ export const deleteLocation = async (req, res, next) => {
     const { id } = req.params;
     const location = await Location.findById(id);
     if (!location) {
-      return res.status(404).json({ message: "Локацията не е намерена" });
+      return res.status(404).json({ 
+        errorCode: "LOCATION_NOT_FOUND",
+        message: "Location not found." 
+      });
     }
 
     const isBusinessOwner =
@@ -306,11 +342,17 @@ export const deleteLocation = async (req, res, next) => {
     const isManagerAllowed = await canManagerEditLocation(req, location);
 
     if (!isBusinessOwner && !isManagerAllowed) {
-      return res.status(403).json({ message: "Нямате права за тази локация" });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You do not have permission for this location." 
+      });
     }
 
     await Location.findByIdAndDelete(id);
-    res.json({ message: "Локацията е изтрита успешно" });
+    res.json({ 
+      message: "Location deleted successfully.",
+      messageCode: "LOCATION_DELETED"
+    });
   } catch (error) {
     next(error);
   }

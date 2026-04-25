@@ -28,19 +28,25 @@ export const createCheckoutSession = async (req, res) => {
   const stripe = getStripe();
   if (!stripe) {
     return res.status(500).json({
-      error:
-        "Stripe is not configured on the server. Missing STRIPE_SECRET_KEY.",
+      errorCode: "STRIPE_NOT_CONFIGURED",
+      message: "Stripe is not configured on the server. Missing STRIPE_SECRET_KEY."
     });
   }
 
   if (!planName || !businessId) {
-    return res.status(400).json({ error: "Липсва planName или businessId." });
+    return res.status(400).json({ 
+      errorCode: "MISSING_REQUIRED_FIELDS",
+      message: "planName or businessId is missing." 
+    });
   }
 
   const priceId = PLAN_PRICE_MAP[planName];
 
   if (!priceId) {
-    return res.status(400).json({ error: "Невалидно име на план." });
+    return res.status(400).json({ 
+      errorCode: "INVALID_PLAN",
+      message: "Invalid plan name." 
+    });
   }
   // If placeholder price IDs are used, ensure environment variables are configured in production.
 
@@ -50,7 +56,10 @@ export const createCheckoutSession = async (req, res) => {
 
     const business = await Business.findById(businessId);
     if (!business) {
-      return res.status(404).json({ error: "Бизнесът не е намерен." });
+      return res.status(404).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found." 
+      });
     }
 
     const isFirstTimeSubscriber = !business.stripeCustomerId;
@@ -88,20 +97,24 @@ export const createCheckoutSession = async (req, res) => {
 
     const session = await stripe.checkout.sessions.create(sessionOptions);
 
-    res.json({ url: session.url });
+    res.json({
+      message: "Checkout session created successfully.",
+      messageCode: "STRIPE_SESSION_CREATED",
+      data: { url: session.url }
+    });
   } catch (error) {
     // Специално съобщение за валута
     if (error.message && error.message.includes("currency")) {
       return res.status(400).json({
-        error: "Грешка с валутата на плана.",
-        details:
-          "Моля, уверете се, че цените в Stripe са създадени с EUR валута.",
-        stripeError: error.message,
+        errorCode: "CURRENCY_ERROR",
+        message: "Currency error with the plan. Please ensure Stripe prices are in EUR.",
+        details: error.message,
       });
     }
 
     res.status(500).json({
-      error: "Неуспешно създаване на сесия за плащане.",
+      errorCode: "STRIPE_SESSION_FAILED",
+      message: "Failed to create checkout session.",
       details: error.message,
     });
   }
@@ -111,14 +124,17 @@ export const getCheckoutInvoiceLink = async (req, res) => {
   const { sessionId } = req.query;
 
   if (!sessionId) {
-    return res.status(400).json({ message: "Missing sessionId query param." });
+    return res.status(400).json({ 
+      errorCode: "MISSING_REQUIRED_FIELDS",
+      message: "Missing sessionId query param." 
+    });
   }
 
   const stripe = getStripe();
   if (!stripe) {
     return res.status(500).json({
-      message:
-        "Stripe is not configured on the server. Missing STRIPE_SECRET_KEY.",
+      errorCode: "STRIPE_NOT_CONFIGURED",
+      message: "Stripe is not configured on the server. Missing STRIPE_SECRET_KEY.",
     });
   }
 
@@ -134,7 +150,10 @@ export const getCheckoutInvoiceLink = async (req, res) => {
       !requesterBusinessId ||
       String(sessionBusinessId) !== String(requesterBusinessId)
     ) {
-      return res.status(403).json({ message: "Forbidden" });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "Forbidden" 
+      });
     }
 
     let invoice = session.invoice || session?.subscription?.latest_invoice;
@@ -147,14 +166,15 @@ export const getCheckoutInvoiceLink = async (req, res) => {
 
     if (!invoiceUrl) {
       return res.status(404).json({
-        message:
-          "Invoice is not available yet. Please try again in a few moments.",
+        errorCode: "INVOICE_NOT_AVAILABLE",
+        message: "Invoice is not available yet. Please try again in a few moments.",
       });
     }
 
     return res.json({ invoiceUrl });
   } catch (error) {
     return res.status(500).json({
+      errorCode: "FETCH_INVOICE_FAILED",
       message: "Failed to load Stripe invoice.",
       details: error.message,
     });

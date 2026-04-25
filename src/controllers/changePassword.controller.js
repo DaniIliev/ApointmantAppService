@@ -8,18 +8,26 @@ export const changePassword = async (req, res, next) => {
     const { newPassword } = req.body;
     console.log("Change password", newPassword);
     if (!newPassword || newPassword.length < 6) {
-      return res
-        .status(400)
-        .json({ message: "Паролата трябва да е поне 6 символа." });
+      return res.status(400)
+        .json({ 
+          errorCode: "PASSWORD_TOO_SHORT",
+          message: "Password must be at least 6 characters." 
+        });
     }
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ 
+        errorCode: "USER_NOT_FOUND",
+        message: "User not found." 
+      });
     }
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     user.mustChangePassword = false;
     await user.save();
-    res.json({ message: "Паролата е сменена успешно." });
+    res.json({ 
+      messageCode: "PASSWORD_CHANGED",
+      message: "Password changed successfully." 
+    });
   } catch (e) {
     next(e);
   }

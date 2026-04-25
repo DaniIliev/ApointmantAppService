@@ -6,9 +6,11 @@ export const adminGrantPlan = async (req, res, next) => {
   try {
     const { businessId, plan, duration } = req.body;
     if (!businessId || !plan) {
-      return res
-        .status(400)
-        .json({ message: "businessId и plan са задължителни." });
+      return res.status(400)
+        .json({ 
+          errorCode: "MISSING_REQUIRED_FIELDS",
+          message: "businessId and plan are required." 
+        });
     }
     // Validate plan
     const validPlans = [
@@ -20,12 +22,18 @@ export const adminGrantPlan = async (req, res, next) => {
       "Enterprise_Annual",
     ];
     if (!validPlans.includes(plan)) {
-      return res.status(400).json({ message: "Невалиден план." });
+      return res.status(400).json({ 
+        errorCode: "INVALID_PLAN",
+        message: "Invalid plan." 
+      });
     }
     // Find and update business
     const business = await Business.findById(businessId);
     if (!business) {
-      return res.status(404).json({ message: "Бизнесът не е намерен." });
+      return res.status(404).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found." 
+      });
     }
     business.plan = plan;
     business.subscriptionStatus = "active";
@@ -45,7 +53,11 @@ export const adminGrantPlan = async (req, res, next) => {
       plan,
       business.planExpiresAt
     );
-    res.json({ message: "Планът е зададен успешно.", business });
+    res.json({ 
+      message: "Plan granted successfully.", 
+      messageCode: "PLAN_GRANTED",
+      data: business 
+    });
   } catch (e) {
     next(e);
   }

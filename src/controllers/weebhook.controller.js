@@ -20,7 +20,10 @@ export const handleStripeWebhook = async (req, res) => {
     );
     return res
       .status(500)
-      .send("Stripe not configured: missing STRIPE_SECRET_KEY");
+      .json({ 
+        errorCode: "STRIPE_NOT_CONFIGURED",
+        message: "Stripe not configured: missing STRIPE_SECRET_KEY." 
+      });
   }
 
   try {
@@ -30,7 +33,11 @@ export const handleStripeWebhook = async (req, res) => {
     console.error(
       `❌ [SUBSCRIPTION WEBHOOK] Signature verification failed: ${err.message}`
     );
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    return res.status(400).json({ 
+      errorCode: "WEBHOOK_SIGNATURE_FAILED",
+      message: "Webhook signature verification failed.",
+      details: err.message 
+    });
   }
 
   const data = event.data.object;
@@ -167,6 +174,9 @@ export const handleStripeWebhook = async (req, res) => {
     res.json({ received: true });
   } catch (error) {
     console.error("Error processing webhook event:", error);
-    res.status(500).json({ error: "Webhook failed to process event." });
+    res.status(500).json({ 
+      errorCode: "WEBHOOK_PROCESSING_FAILED",
+      message: "Webhook failed to process event." 
+    });
   }
 };

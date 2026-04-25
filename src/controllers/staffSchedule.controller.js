@@ -12,7 +12,7 @@ const isTimeValid = (timeStr) => {
 const validateLocationHours = async (locationId, userWeeklyWorkingHours) => {
   const location = await Location.findById(locationId);
   if (!location) {
-     return { isValid: false, message: "Локацията не е намерена." };
+     return { isValid: false, message: "Location not found.", errorCode: "LOCATION_NOT_FOUND" };
   }
 
   const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -23,20 +23,20 @@ const validateLocationHours = async (locationId, userWeeklyWorkingHours) => {
     if (userDay && !userDay.isDayOff) {
       const uWorkTime = userDay.workTime;
       if (!uWorkTime || !isTimeValid(uWorkTime.start) || !isTimeValid(uWorkTime.end)) {
-         return { isValid: false, message: `Невалиден формат за работните часове в ден ${day}.` };
+         return { isValid: false, message: `Invalid work hours format on ${day}.`, errorCode: "INVALID_WORK_HOURS" };
       }
 
       const locDay = location.weeklyWorkingHours?.[day];
       if (locDay?.isDayOff) {
-        return { isValid: false, message: `Локацията не работи в ден ${day}. Не можете да зададете работен график за този ден.` };
+        return { isValid: false, message: `Location is closed on ${day}. Cannot set schedule.`, errorCode: "LOCATION_CLOSED" };
       }
       
       if (!locDay || !locDay.workTime || !locDay.workTime.start || !locDay.workTime.end) {
-         return { isValid: false, message: `Локацията няма дефинирано работно време в ден ${day}.` };
+         return { isValid: false, message: `Location has no work hours defined on ${day}.`, errorCode: "LOCATION_HOURS_NOT_SET" };
       }
 
       if (uWorkTime.start < locDay.workTime.start || uWorkTime.end > locDay.workTime.end) {
-         return { isValid: false, message: `Графикът в ден ${day} (${uWorkTime.start}-${uWorkTime.end}) излиза извън работното време на локацията (${locDay.workTime.start}-${locDay.workTime.end}).` };
+         return { isValid: false, message: `Schedule on ${day} (${uWorkTime.start}-${uWorkTime.end}) is outside location hours (${locDay.workTime.start}-${locDay.workTime.end}).`, errorCode: "OUTSIDE_LOCATION_HOURS" };
       }
     }
   }
@@ -72,7 +72,7 @@ const validateScheduleConflicts = async (staffId, startDate, endDate, userWeekly
       
       if (existingDay && !existingDay.isDayOff) {
         if (timesOverlap(userDay.workTime.start, userDay.workTime.end, existingDay.workTime.start, existingDay.workTime.end)) {
-          return { isValid: false, message: `Има конфликт с друг график на този служител в ден ${day} (припокриващи се часове).` };
+          return { isValid: false, message: `Conflict with another schedule for this staff member on ${day} (overlapping hours).`, errorCode: "SCHEDULE_CONFLICT" };
         }
       }
     }
@@ -144,7 +144,10 @@ export const getSchedules = async (req, res, next) => {
     const userRole = req.user?.role;
 
     if (!userId) {
-      return res.status(401).json({ message: "Невалидна аутентикация." });
+      return res.status(401).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "Invalid authentication." 
+      });
     }
     const filter = {};
 
@@ -152,8 +155,10 @@ export const getSchedules = async (req, res, next) => {
     const requestUser = await User.findById(userId);
     if (!requestUser || !requestUser.businessId) {
       return res
-        .status(400)
-        .json({ message: "Потребителят не е свързан с бизнес." });
+        .json({ 
+          errorCode: "BUSINESS_NOT_FOUND",
+          message: "User is not linked to a business." 
+        });
     }
     // Ensure we have a valid ObjectId for business
     const bizIdStr =
@@ -209,7 +214,10 @@ export const getDailySchedule = async (req, res, next) => {
 
     const schedule = await StaffSchedule.findById(id).populate("dailySchedule");
     if (!schedule) {
-      return res.status(404).json({ message: "Графикът не е намерен." });
+      return res.status(404).json({ 
+        errorCode: "SCHEDULE_NOT_FOUND",
+        message: "Schedule not found." 
+      });
     }
 
     // Ownership check: must be the staff member OR the business owner
@@ -219,7 +227,10 @@ export const getDailySchedule = async (req, res, next) => {
       schedule.staff.toString() !== userId &&
       req.user.role !== "business"
     ) {
-      return res.status(403).json({ message: "Нямаш достъп до този график." });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You do not have access to this schedule." 
+      });
     }
 
     // Връща workHours, които трябва да съдържат и isDayOff
@@ -239,14 +250,19 @@ export const getDailyScheduleByStaff = async (req, res, next) => {
     const userId = req.user?.id || req.user?._id;
 
     if (!userId) {
-      return res.status(401).json({ message: "Невалидна аутентикация." });
+      return res.status(401).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "Invalid authentication." 
+      });
     }
 
     const requestUser = await User.findById(userId);
     if (!requestUser || !requestUser.businessId) {
       return res
-        .status(400)
-        .json({ message: "Потребителят не е свързан с бизнес." });
+        .json({ 
+          errorCode: "BUSINESS_NOT_FOUND",
+          message: "User is not linked to a business." 
+        });
     }
 
     const filter = {
@@ -320,7 +336,10 @@ export const createSchedule = async (req, res, next) => {
     const resolvedBreaks = breaks || [break1, break2, break3].filter(b => b && b.start && b.end);
 
     if (!locationId) {
-      return res.status(400).json({ message: "locationId е задължителен." });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "locationId is required." 
+      });
     }
 
     const requestUser = await User.findById(userId);
@@ -329,26 +348,34 @@ export const createSchedule = async (req, res, next) => {
       !["staff", "business", "manager"].includes(requestUser.role)
     ) {
       return res.status(403).json({
-        message:
-          "Само служители и собственици на бизнес могат да управляват график.",
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "Only staff and business owners can manage schedule.",
       });
     }
 
     if (!requestUser.businessId) {
       return res
-        .status(400)
-        .json({ message: "Потребителят не е свързан с бизнес." });
+        .json({ 
+          errorCode: "BUSINESS_NOT_FOUND",
+          message: "User is not linked to a business." 
+        });
     }
 
     const targetStaffId = staffId || (requestUser.role === "staff" ? userId : null);
 
     // Валидация спрямо локацията
     const locValidation = await validateLocationHours(locationId, weeklyWorkingHours);
-    if (!locValidation.isValid) return res.status(400).json({ message: locValidation.message });
+    if (!locValidation.isValid) return res.status(400).json({ 
+      errorCode: locValidation.errorCode, 
+      message: locValidation.message 
+    });
 
     // Валидация за конфликти
     const conflictValidation = await validateScheduleConflicts(targetStaffId, startDate, endDate, weeklyWorkingHours);
-    if (!conflictValidation.isValid) return res.status(400).json({ message: conflictValidation.message });
+    if (!conflictValidation.isValid) return res.status(400).json({ 
+      errorCode: conflictValidation.errorCode, 
+      message: conflictValidation.message 
+    });
 
     const dailyScheduleDoc = await createDefaultDailySchedule(
       startDate,
@@ -366,7 +393,11 @@ export const createSchedule = async (req, res, next) => {
       dailySchedule: dailyScheduleDoc._id,
     });
     await newSchedule.save();
-    res.status(201).json(newSchedule);
+    res.status(201).json({
+      message: "Schedule created successfully.",
+      messageCode: "SCHEDULE_CREATED",
+      data: newSchedule
+    });
   } catch (e) {
     next(e);
   }
@@ -384,7 +415,10 @@ export const updateSchedule = async (req, res, next) => {
 
     const currentSchedule = await StaffSchedule.findById(id);
     if (!currentSchedule) {
-      return res.status(404).json({ message: "Графикът не е намерен." });
+      return res.status(404).json({ 
+        errorCode: "SCHEDULE_NOT_FOUND",
+        message: "Schedule not found." 
+      });
     }
 
     // Permission check: staff member themselves or business owner
@@ -397,7 +431,10 @@ export const updateSchedule = async (req, res, next) => {
         String(currentSchedule.business) === String(req.user?.businessId)
       )
     ) {
-      return res.status(403).json({ message: "Нямаш достъп до този график." });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You do not have access to this schedule." 
+      });
     }
 
     // 2. Обновяване на StaffSchedule
@@ -433,14 +470,20 @@ export const updateSchedule = async (req, res, next) => {
       if (!locValidation.isValid) {
          // Revert the updatedSchedule since we already mutated it above
          await StaffSchedule.findByIdAndUpdate(id, currentSchedule.toObject());
-         return res.status(400).json({ message: locValidation.message });
+         return res.status(400).json({ 
+           errorCode: locValidation.errorCode, 
+           message: locValidation.message 
+         });
       }
 
       // Валидация за конфликти
       const conflictValidation = await validateScheduleConflicts(updatedSchedule.staff, resolvedStartDate, resolvedEndDate, resolvedWeeklyWorkingHours, updatedSchedule._id);
       if (!conflictValidation.isValid) {
          await StaffSchedule.findByIdAndUpdate(id, currentSchedule.toObject());
-         return res.status(400).json({ message: conflictValidation.message });
+         return res.status(400).json({ 
+           errorCode: conflictValidation.errorCode, 
+           message: conflictValidation.message 
+         });
       }
 
       await DailySchedule.findByIdAndDelete(currentSchedule.dailySchedule);
@@ -460,7 +503,11 @@ export const updateSchedule = async (req, res, next) => {
       updatedSchedule.dailySchedule = newDailyScheduleDoc._id;
     }
 
-    res.status(200).json(updatedSchedule);
+    res.status(200).json({
+      message: "Schedule updated successfully.",
+      messageCode: "SCHEDULE_UPDATED",
+      data: updatedSchedule
+    });
   } catch (e) {
     next(e);
   }
@@ -477,7 +524,10 @@ export const updateDailySchedule = async (req, res, next) => {
 
     const schedule = await StaffSchedule.findById(id);
     if (!schedule) {
-      return res.status(404).json({ message: "Графикът не е намерен." });
+      return res.status(404).json({ 
+        errorCode: "SCHEDULE_NOT_FOUND",
+        message: "Schedule not found." 
+      });
     }
 
     if (
@@ -485,14 +535,19 @@ export const updateDailySchedule = async (req, res, next) => {
       schedule.staff.toString() !== userId &&
       req.user.role !== "business"
     ) {
-      return res.status(403).json({ message: "Нямаш достъп до този график." });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You do not have access to this schedule." 
+      });
     }
 
     const dailySchedule = await DailySchedule.findById(schedule.dailySchedule);
     if (!dailySchedule) {
       return res
-        .status(404)
-        .json({ message: "Детайлният график не е намерен." });
+        .json({ 
+          errorCode: "DAILY_SCHEDULE_NOT_FOUND",
+          message: "Detailed schedule not found." 
+        });
     }
 
     if (Array.isArray(workHours)) {
@@ -505,8 +560,10 @@ export const updateDailySchedule = async (req, res, next) => {
 
       if (index === -1) {
         return res
-          .status(404)
-          .json({ message: "Денят за редакция не е намерен." });
+          .json({ 
+            errorCode: "DAY_NOT_FOUND",
+            message: "Day for edit not found." 
+          });
       }
 
       const dayName = workHour.day || dailySchedule.workHours[index].day;
@@ -527,7 +584,10 @@ export const updateDailySchedule = async (req, res, next) => {
 
       // Validate against Location Hours
       const locValidation = await validateLocationHours(schedule.location, validationWeeklyHours);
-      if (!locValidation.isValid) return res.status(400).json({ message: locValidation.message });
+      if (!locValidation.isValid) return res.status(400).json({ 
+        errorCode: locValidation.errorCode, 
+        message: locValidation.message 
+      });
 
       // Validate against Conflicts with other schedules for this staff member
       // We limit the range to this specific day to focus on the override conflict.
@@ -539,7 +599,10 @@ export const updateDailySchedule = async (req, res, next) => {
         validationWeeklyHours, 
         schedule._id
       );
-      if (!conflictValidation.isValid) return res.status(400).json({ message: conflictValidation.message });
+      if (!conflictValidation.isValid) return res.status(400).json({ 
+        errorCode: conflictValidation.errorCode, 
+        message: conflictValidation.message 
+      });
       // ────────────────────────────────────────────────────
 
       dailySchedule.workHours[index] = {
@@ -551,13 +614,17 @@ export const updateDailySchedule = async (req, res, next) => {
       };
     } else {
       return res.status(400).json({
-        message:
-          "Невалиден payload. Изпрати `workHours` (масив) или `workHour` (един ден).",
+        errorCode: "INVALID_PAYLOAD",
+        message: "Invalid payload. Send `workHours` (array) or `workHour` (single day)."
       });
     }
 
     await dailySchedule.save();
-    res.status(200).json(dailySchedule);
+    res.status(200).json({
+      message: "Daily schedule updated successfully.",
+      messageCode: "DAILY_SCHEDULE_UPDATED",
+      data: dailySchedule
+    });
   } catch (e) {
     next(e);
   }
@@ -572,7 +639,10 @@ export const deleteSchedule = async (req, res, next) => {
 
     const currentSchedule = await StaffSchedule.findById(id);
     if (!currentSchedule) {
-      return res.status(404).json({ message: "Графикът не е намерен." });
+      return res.status(404).json({ 
+        errorCode: "SCHEDULE_NOT_FOUND",
+        message: "Schedule not found." 
+      });
     }
 
     // Check authorization: allow if user is staff owner OR has business/manager role
@@ -582,7 +652,10 @@ export const deleteSchedule = async (req, res, next) => {
       req.user.role === "business" || req.user.role === "manager";
 
     if (!isStaffOwner && !hasAdminRole) {
-      return res.status(403).json({ message: "Нямаш достъп до този график." });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You do not have access to this schedule." 
+      });
     }
 
     const schedule = await StaffSchedule.findByIdAndDelete(id);
@@ -590,7 +663,10 @@ export const deleteSchedule = async (req, res, next) => {
     // Изтриване и на свързания дневен график
     await DailySchedule.findByIdAndDelete(schedule.dailySchedule);
 
-    res.status(200).json({ message: "Графикът е изтрит успешно." });
+    res.status(200).json({ 
+      message: "Schedule deleted successfully.",
+      messageCode: "SCHEDULE_DELETED"
+    });
   } catch (e) {
     next(e);
   }
@@ -603,12 +679,18 @@ export const getDailyView = async (req, res, next) => {
     const userId = req.user?.id || req.user?._id;
 
     if (!locationId || !startDate || !endDate) {
-      return res.status(400).json({ message: "locationId, startDate и endDate са задължителни." });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "locationId, startDate, and endDate are required." 
+      });
     }
 
     const requestUser = await User.findById(userId);
     if (!requestUser || !requestUser.businessId) {
-      return res.status(400).json({ message: "Потребителят не е свързан с бизнес." });
+      return res.status(400).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "User is not linked to a business." 
+      });
     }
 
     const start = new Date(startDate);

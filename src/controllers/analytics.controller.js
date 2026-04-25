@@ -58,7 +58,10 @@ export const getAnalytics = async (req, res) => {
   try {
     const businessId = req.user?.businessId;
     if (!businessId)
-      return res.status(400).json({ message: "Missing business context" });
+      return res.status(400).json({ 
+        errorCode: "MISSING_BUSINESS_CONTEXT",
+        message: "Missing business context." 
+      });
 
     const {
       source = "appointments", // appointments|revenue|clients|services|staff
@@ -580,6 +583,10 @@ export const getAnalytics = async (req, res) => {
   } catch (err) {
     return res
       .status(500)
-      .json({ message: "Failed to get analytics", error: err.message });
+      .json({ 
+        errorCode: "ANALYTICS_FAILED",
+        message: "Failed to get analytics.", 
+        error: err.message 
+      });
   }
 };
