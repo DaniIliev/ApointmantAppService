@@ -38,7 +38,7 @@ export const sendConfirmationEmail = async (
   businessName,
   dashboardLink,
   tempPassword = null,
-  appointmentId = null
+  appointmentId = null,
 ) => {
   const formattedStartTime = moment(startTime).format("HH:mm");
   const formattedEndTime = moment(endTime).format("HH:mm");
@@ -115,7 +115,7 @@ export const sendConfirmationEmail = async (
   sendInBackground(
     mailOptions,
     "Confirmation email sent successfully.",
-    "Failed to send confirmation email:"
+    "Failed to send confirmation email:",
   );
 };
 
@@ -124,7 +124,7 @@ export const inviteStaffEmail = async (
   lastName,
   email,
   tempPassword,
-  businessName
+  businessName,
 ) => {
   const mailOptions = {
     from: "appointmentappdi@gmail.com",
@@ -146,7 +146,7 @@ export const inviteStaffEmail = async (
   sendInBackground(
     mailOptions,
     "Invitation email sent successfully.",
-    "Failed to send invitation email:"
+    "Failed to send invitation email:",
   );
 };
 
@@ -156,7 +156,7 @@ export const sendPlanExpirationWarning = async (
   lastName,
   planName,
   expirationDate,
-  businessName
+  businessName,
 ) => {
   const formattedDate = moment(expirationDate).format("DD.MM.YYYY");
 
@@ -179,7 +179,7 @@ export const sendPlanExpirationWarning = async (
   sendInBackground(
     mailOptions,
     `Expiration warning email sent to ${to}`,
-    `Failed to send expiration warning email to ${to}:`
+    `Failed to send expiration warning email to ${to}:`,
   );
 };
 
@@ -202,7 +202,7 @@ export const sendForgotPasswordOtpEmail = async (email, firstName, otp) => {
   sendInBackground(
     mailOptions,
     `Forgot password OTP email sent to ${email}`,
-    `Failed to send forgot password OTP email to ${email}:`
+    `Failed to send forgot password OTP email to ${email}:`,
   );
 };
 export const sendEmailChangeNotification = async (
@@ -211,7 +211,7 @@ export const sendEmailChangeNotification = async (
   firstName,
   lastName,
   tempPassword,
-  businessName
+  businessName,
 ) => {
   // Email to new address with new credentials
   const newEmailOptions = {
@@ -254,12 +254,12 @@ export const sendEmailChangeNotification = async (
     sendInBackground(
       newEmailOptions,
       `Email change notification sent to ${newEmail}`,
-      `Failed to send email change notification to ${newEmail}:`
+      `Failed to send email change notification to ${newEmail}:`,
     );
     sendInBackground(
       oldEmailOptions,
       `Email change notification sent to ${oldEmail}`,
-      `Failed to send email change notification to ${oldEmail}:`
+      `Failed to send email change notification to ${oldEmail}:`,
     );
   } catch (error) {
     console.error("Failed to send email change notifications:", error);
@@ -275,7 +275,7 @@ export const sendAppointmentConfirmationToNewUser = async (
   startTime,
   endTime,
   businessName,
-  dashboardLink
+  dashboardLink,
 ) => {
   const formattedStartTime = moment(startTime).format("HH:mm");
   const formattedEndTime = moment(endTime).format("HH:mm");
@@ -327,7 +327,7 @@ export const sendAppointmentConfirmationToNewUser = async (
   sendInBackground(
     mailOptions,
     `Appointment confirmation email sent to ${to} (new user)`,
-    `Failed to send appointment confirmation email to ${to}:`
+    `Failed to send appointment confirmation email to ${to}:`,
   );
 };
 
@@ -339,7 +339,7 @@ export const sendAppointmentConfirmationToExistingUser = async (
   endTime,
   businessName,
   dashboardLink,
-  appointmentId
+  appointmentId,
 ) => {
   const formattedStartTime = moment(startTime).format("HH:mm");
   const formattedEndTime = moment(endTime).format("HH:mm");
@@ -389,7 +389,7 @@ export const sendAppointmentConfirmationToExistingUser = async (
   sendInBackground(
     mailOptions,
     `Appointment confirmation email sent to ${to} (existing user)`,
-    `Failed to send appointment confirmation email to ${to}:`
+    `Failed to send appointment confirmation email to ${to}:`,
   );
 };
 
@@ -400,7 +400,7 @@ export const sendAppointmentCancelledEmail = async (
   startTime,
   endTime,
   businessName,
-  dashboardLink
+  dashboardLink,
 ) => {
   const formattedStartTime = moment(startTime).format("HH:mm");
   const formattedEndTime = moment(endTime).format("HH:mm");
@@ -445,7 +445,7 @@ export const sendAppointmentCancelledEmail = async (
   sendInBackground(
     mailOptions,
     `Appointment cancellation confirmation email sent to ${to}`,
-    `Failed to send appointment cancellation email to ${to}:`
+    `Failed to send appointment cancellation email to ${to}:`,
   );
 };
 
@@ -455,7 +455,7 @@ export const sendPaymentAuthorizationEmail = (
   serviceName,
   businessName,
   amount,
-  currency
+  currency,
 ) => {
   const mailOptions = {
     from: "appointmentappdi@gmail.com",
@@ -466,7 +466,7 @@ export const sendPaymentAuthorizationEmail = (
         <h2>Здравейте, ${clientName}!</h2>
         <p>Беше извършена предварителна авторизация на сумата за услугата <strong>${serviceName}</strong>.</p>
         <p>Сумата <strong>${(amount / 100).toFixed(
-          2
+          2,
         )} ${currency.toUpperCase()}</strong> е временно блокирана по вашата карта.</p>
         <p>След като служителят одобри часа, сумата ще бъде изтеглена. Ако заявката бъде отказана, блокираният лимит ще бъде освободен автоматично.</p>
         <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
@@ -480,7 +480,7 @@ export const sendPaymentAuthorizationEmail = (
   sendInBackground(
     mailOptions,
     `Payment authorization email sent to ${to}`,
-    `Failed to send payment authorization email to ${to}:`
+    `Failed to send payment authorization email to ${to}:`,
   );
 };
 
@@ -490,7 +490,7 @@ export const sendPaymentCapturedEmail = (
   serviceName,
   businessName,
   amount,
-  currency
+  currency,
 ) => {
   const mailOptions = {
     from: "appointmentappdi@gmail.com",
@@ -501,7 +501,7 @@ export const sendPaymentCapturedEmail = (
         <h2>Здравейте, ${clientName}!</h2>
         <p>Плащането за услугата <strong>${serviceName}</strong> беше успешно обработено.</p>
         <p>Сума: <strong>${(amount / 100).toFixed(
-          2
+          2,
         )} ${currency.toUpperCase()}</strong></p>
         <p>Благодарим Ви за доверието!</p>
         <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
@@ -515,7 +515,7 @@ export const sendPaymentCapturedEmail = (
   sendInBackground(
     mailOptions,
     `Payment captured email sent to ${to}`,
-    `Failed to send payment captured email to ${to}:`
+    `Failed to send payment captured email to ${to}:`,
   );
 };
 
@@ -525,7 +525,7 @@ export const sendPaymentRefundedEmail = (
   serviceName,
   businessName,
   amount,
-  currency
+  currency,
 ) => {
   const mailOptions = {
     from: "appointmentappdi@gmail.com",
@@ -536,7 +536,7 @@ export const sendPaymentRefundedEmail = (
         <h2>Здравейте, ${clientName}!</h2>
         <p>Сумата за услугата <strong>${serviceName}</strong> беше възстановена.</p>
         <p>Сума: <strong>${(amount / 100).toFixed(
-          2
+          2,
         )} ${currency.toUpperCase()}</strong></p>
         <p>Моля, имайте предвид, че банковото Ви извлечение може да отнеме няколко дни, за да отрази промяната.</p>
         <p style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px; color: #666;">
@@ -550,6 +550,6 @@ export const sendPaymentRefundedEmail = (
   sendInBackground(
     mailOptions,
     `Payment refunded email sent to ${to}`,
-    `Failed to send payment refunded email to ${to}:`
+    `Failed to send payment refunded email to ${to}:`,
   );
 };

@@ -46,13 +46,10 @@ const serializeAppointment = (appointment) => {
       appointment.title ||
       appointment.notes ||
       "Appointment";
-
   return {
     _id: appointment._id,
-    businessId:
-      appointment.business?._id ||
-      appointment.business ||
-      appointment.businessId,
+    businessName: appointment.business?.businessName,
+    businessId: appointment.business?._id,
     serviceName,
     servicePrice: isWorkBlock ? undefined : appointment.service?.price,
     serviceDuration: isWorkBlock
@@ -70,15 +67,12 @@ const serializeAppointment = (appointment) => {
     title: appointment.title || "",
     notes: appointment.notes,
     service_id: appointment.service?._id || appointment.service || null,
-    staff_id: appointment.staff,
-    staff: {
-      _id: appointment.staff,
-    },
+    staff: appointment.staff,
     paymentStatus: appointment.paymentStatus,
     stripePaymentIntentId: appointment.stripePaymentIntentId,
     stripePaymentMethodId: appointment.stripePaymentMethodId,
     stripePaymentAmount: appointment.stripePaymentAmount,
-    locationId: appointment.locationId,
+    location: appointment.locationId,
   };
 };
 
@@ -97,9 +91,9 @@ export const getDashboardData = async (req, res) => {
       // For business owner or staff, we show their assigned appointments
       filter.staff = userId;
     } else {
-      return res.status(403).json({ 
+      return res.status(403).json({
         errorCode: "INVALID_USER_ROLE",
-        message: "Invalid user role." 
+        message: "Invalid user role.",
       });
     }
 
@@ -118,10 +112,10 @@ export const getDashboardData = async (req, res) => {
 
     res.json(transformedAppointments);
   } catch (error) {
-    res.status(500).json({ 
+    res.status(500).json({
       errorCode: "SERVER_ERROR",
-      message: "Server error.", 
-      error 
+      message: "Server error.",
+      error,
     });
   }
 };
@@ -146,39 +140,38 @@ export const createWorkBlockAppointment = async (req, res, next) => {
     }
 
     if (!req.user || !["business", "staff"].includes(req.user.role)) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         errorCode: "UNAUTHORIZED_ACTION",
-        message: "Access denied." 
+        message: "Access denied.",
       });
     }
 
     const biz = await Business.findById(business);
-    if (!biz) return res.status(404).json({ 
-      errorCode: "BUSINESS_NOT_FOUND",
-      message: "Business not found." 
-    });
+    if (!biz)
+      return res.status(404).json({
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found.",
+      });
 
     if (req.user.role === "business") {
       if (String(biz.owner) !== String(req.user.id)) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           errorCode: "UNAUTHORIZED_ACTION",
-          message: "You are not the owner." 
+          message: "You are not the owner.",
         });
       }
     } else if (String(req.user.businessId) !== String(biz._id)) {
-      return res
-        .status(403)
-        .json({ 
-          errorCode: "UNAUTHORIZED_ACTION",
-          message: "You are not an employee of this business." 
-        });
+      return res.status(403).json({
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You are not an employee of this business.",
+      });
     }
 
     const staffUser = await User.findById(staff);
     if (!staffUser || String(staffUser.businessId) !== String(biz._id)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         errorCode: "INVALID_STAFF",
-        message: "Invalid staff member." 
+        message: "Invalid staff member.",
       });
     }
 
@@ -216,7 +209,7 @@ export const createWorkBlockAppointment = async (req, res, next) => {
     res.status(201).json({
       message: "Work block created successfully.",
       messageCode: "WORK_BLOCK_CREATED",
-      data: serializeAppointment(populated)
+      data: serializeAppointment(populated),
     });
   } catch (e) {
     next(e);
@@ -238,19 +231,18 @@ export const createAppointment = async (req, res, next) => {
     } = req.body;
 
     const biz = await Business.findById(business);
-    if (!biz) return res.status(404).json({ 
-      errorCode: "BUSINESS_NOT_FOUND",
-      message: "Business not found." 
-    });
+    if (!biz)
+      return res.status(404).json({
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found.",
+      });
 
     const srv = await Service.findById(service);
     if (!srv || String(srv.business) !== String(biz._id)) {
-      return res
-        .status(400)
-        .json({ 
-          errorCode: "INVALID_SERVICE",
-          message: "Invalid service for this business." 
-        });
+      return res.status(400).json({
+        errorCode: "INVALID_SERVICE",
+        message: "Invalid service for this business.",
+      });
     }
 
     if (!srv.staffMembers.some((id) => String(id) === String(staff))) {
@@ -280,12 +272,10 @@ export const createAppointment = async (req, res, next) => {
     );
 
     if (!isSlotAvailable) {
-      return res
-        .status(400)
-        .json({ 
-          errorCode: "SLOT_UNAVAILABLE",
-          message: "The selected slot is busy or invalid." 
-        });
+      return res.status(400).json({
+        errorCode: "SLOT_UNAVAILABLE",
+        message: "The selected slot is busy or invalid.",
+      });
     }
 
     // Calculate appointment time in app timezone (Sofia) - will be stored as UTC in DB
@@ -385,7 +375,7 @@ export const createAppointment = async (req, res, next) => {
     res.status(201).json({
       message: "Appointment created successfully.",
       messageCode: "APPOINTMENT_CREATED",
-      data: appointment
+      data: appointment,
     });
   } catch (e) {
     next(e);
@@ -397,14 +387,15 @@ export const listBusinessAppointments = async (req, res, next) => {
     const { businessId } = req.params;
     const { locationId } = req.query;
     const biz = await Business.findById(businessId);
-    if (!biz) return res.status(404).json({ 
-      errorCode: "BUSINESS_NOT_FOUND",
-      message: "Business not found." 
-    });
+    if (!biz)
+      return res.status(404).json({
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found.",
+      });
     if (String(biz.owner) !== req.user.id)
-      return res.status(403).json({ 
+      return res.status(403).json({
         errorCode: "UNAUTHORIZED_ACTION",
-        message: "You are not the owner." 
+        message: "You are not the owner.",
       });
 
     const filter = { business: businessId };
@@ -430,9 +421,9 @@ export const updateAppointmentStatus = async (req, res, next) => {
 
     const appt = await Appointment.findById(id).populate("business service");
     if (!appt)
-      return res.status(404).json({ 
+      return res.status(404).json({
         errorCode: "APPOINTMENT_NOT_FOUND",
-        message: "Appointment not found." 
+        message: "Appointment not found.",
       });
 
     // if (String(appt.business.owner) !== req.user.id) {
@@ -541,7 +532,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
     res.json({
       message: "Appointment status updated successfully.",
       messageCode: "APPOINTMENT_STATUS_UPDATED",
-      data: appt
+      data: appt,
     });
   } catch (e) {
     next(e);
@@ -563,17 +554,17 @@ export const updateAppointment = async (req, res, next) => {
     // Find the existing appointment
     const appt = await Appointment.findById(id).populate("business service");
     if (!appt) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         errorCode: "APPOINTMENT_NOT_FOUND",
-        message: "Appointment not found." 
+        message: "Appointment not found.",
       });
     }
 
     // Check ownership
     if (String(appt.business.owner) !== req.user.id) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         errorCode: "UNAUTHORIZED_ACTION",
-        message: "You are not the owner." 
+        message: "You are not the owner.",
       });
     }
 
@@ -582,9 +573,9 @@ export const updateAppointment = async (req, res, next) => {
       ? await Service.findById(serviceId)
       : await Service.findById(appt.service._id);
     if (!srv) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         errorCode: "SERVICE_NOT_FOUND",
-        message: "Service not found." 
+        message: "Service not found.",
       });
     }
 
@@ -615,11 +606,10 @@ export const updateAppointment = async (req, res, next) => {
       );
 
       if (!isSlotAvailable) {
-        return res
-          .json({ 
-            errorCode: "SLOT_UNAVAILABLE",
-            message: "The selected slot is busy or invalid." 
-          });
+        return res.json({
+          errorCode: "SLOT_UNAVAILABLE",
+          message: "The selected slot is busy or invalid.",
+        });
       }
 
       // Update appointment time
@@ -674,7 +664,7 @@ export const updateAppointment = async (req, res, next) => {
     res.json({
       message: "Appointment updated successfully.",
       messageCode: "APPOINTMENT_UPDATED",
-      data: appt
+      data: appt,
     });
   } catch (e) {
     next(e);
@@ -687,11 +677,10 @@ export const getFreeSlots = async (req, res, next) => {
     const { staffId, date, serviceId, locationId } = req.query;
 
     if (!staffId || !date || !serviceId) {
-      return res
-        .json({ 
-          errorCode: "MISSING_REQUIRED_FIELDS",
-          message: "Missing required parameters." 
-        });
+      return res.json({
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "Missing required parameters.",
+      });
     }
 
     // Availability must never be cached; edge/CDN caches can return stale slots.
@@ -704,9 +693,9 @@ export const getFreeSlots = async (req, res, next) => {
 
     const service = await Service.findById(serviceId);
     if (!service) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         errorCode: "SERVICE_NOT_FOUND",
-        message: "Service not found." 
+        message: "Service not found.",
       });
     }
     const serviceDuration = service.duration;
@@ -733,9 +722,9 @@ export const getClosestAvailableSlot = async (req, res, next) => {
   try {
     const { staffId, serviceId, date, locationId } = req.query;
     if (!staffId || !serviceId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         errorCode: "MISSING_REQUIRED_FIELDS",
-        message: "Missing required parameters." 
+        message: "Missing required parameters.",
       });
     }
 
@@ -749,9 +738,9 @@ export const getClosestAvailableSlot = async (req, res, next) => {
 
     const service = await Service.findById(serviceId);
     if (!service) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         errorCode: "SERVICE_NOT_FOUND",
-        message: "Service not found." 
+        message: "Service not found.",
       });
     }
     const serviceDuration = service.duration;
@@ -847,14 +836,15 @@ export const getAppointmentById = async (req, res, next) => {
 
     const appointment = await Appointment.findById(id)
       .populate("business", "businessName phone")
+      .populate("locationId", "name address")
       .populate("service", "name duration price")
       .populate("staff", "firstName lastName email")
       .populate("client", "email firstName lastName phone");
 
     if (!appointment) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         errorCode: "APPOINTMENT_NOT_FOUND",
-        message: "Appointment not found." 
+        message: "Appointment not found.",
       });
     }
 
@@ -873,9 +863,9 @@ export const deleteAppointment = async (req, res, next) => {
     const appointment = await Appointment.findById(id);
 
     if (!appointment) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         errorCode: "APPOINTMENT_NOT_FOUND",
-        message: "Appointment not found." 
+        message: "Appointment not found.",
       });
     }
 
@@ -886,33 +876,30 @@ export const deleteAppointment = async (req, res, next) => {
         !business ||
         appointment.business.toString() !== business._id.toString()
       ) {
-        return res
-          .json({ 
-            errorCode: "UNAUTHORIZED_ACTION",
-            message: "Unauthorized to delete this appointment." 
-          });
+        return res.json({
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "Unauthorized to delete this appointment.",
+        });
       }
     } else if (userRole === "staff") {
       if (appointment.staff.toString() !== userId) {
-        return res
-          .json({ 
-            errorCode: "UNAUTHORIZED_ACTION",
-            message: "Unauthorized to delete this appointment." 
-          });
+        return res.json({
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "Unauthorized to delete this appointment.",
+        });
       }
     } else if (userRole !== "admin") {
-      return res
-        .json({ 
-          errorCode: "UNAUTHORIZED_ACTION",
-          message: "Unauthorized to delete appointments." 
-        });
+      return res.json({
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "Unauthorized to delete appointments.",
+      });
     }
 
     await Appointment.findByIdAndDelete(id);
 
-    res.status(200).json({ 
+    res.status(200).json({
       message: "Appointment deleted successfully.",
-      messageCode: "APPOINTMENT_DELETED" 
+      messageCode: "APPOINTMENT_DELETED",
     });
   } catch (e) {
     next(e);
