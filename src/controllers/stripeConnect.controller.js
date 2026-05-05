@@ -5,6 +5,8 @@ import {
   sendPaymentCapturedEmail,
 } from "../utils/EmailService.js";
 
+const FRONTEND_URL =  process.env.CLIENT_URL || "http://localhost:3000";
+
 /**
  * Създава или връща Stripe Connect Account Link за onboarding
  * Използва се когато бизнесът иска да приеме плащания с карта
@@ -54,8 +56,8 @@ export const createConnectAccountLink = async (req, res, next) => {
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
       refresh_url:
-        refreshUrl || `${process.env.FRONTEND_URL}/settings/payments`,
-      return_url: returnUrl || `${process.env.FRONTEND_URL}/settings/payments`,
+        refreshUrl || `${FRONTEND_URL}/settings/payments`,
+      return_url: returnUrl || `${FRONTEND_URL}/settings/payments`,
       type: "account_onboarding",
     });
 
@@ -204,8 +206,8 @@ export const createCheckoutSession = async (req, res, next) => {
         },
         success_url:
           successUrl ||
-          `${process.env.FRONTEND_URL}/booking/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: cancelUrl || `${process.env.FRONTEND_URL}/booking/cancel`,
+          `${FRONTEND_URL}/booking/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: cancelUrl || `${FRONTEND_URL}/booking/cancel`,
         metadata: {
           serviceId: serviceId,
           businessId: business._id.toString(),

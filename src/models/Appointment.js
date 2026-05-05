@@ -61,6 +61,7 @@ const appointmentSchema = new mongoose.Schema(
       ref: "Location",
       required: false,
     },
+    stripeSessionId: { type: String },
   },
   { timestamps: true },
 );

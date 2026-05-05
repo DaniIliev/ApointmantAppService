@@ -407,7 +407,6 @@ export const listBusinessAppointments = async (req, res, next) => {
       .populate("locationId")
       .sort({ appointmentTime: 1 })
       .lean();
-
     res.json(items.map((item) => serializeAppointment(item)));
   } catch (e) {
     next(e);

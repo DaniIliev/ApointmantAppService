@@ -7,10 +7,10 @@ const router = express.Router();
 router.post("/", async (req, res, next) => {
   try {
     const { message, userId, businessId } = req.body;
-    if (!message || !userId || !businessId) {
+    if (!message || !businessId) {
       return res.status(400).json({
         message:
-          "Message, userId, and businessId are required. Expected JSON: { message, userId, businessId }",
+          "Message and businessId are required. Expected JSON: { message, businessId, userId? }",
       });
     }
 
