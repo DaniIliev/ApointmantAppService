@@ -10,8 +10,13 @@ export const getAlerts = async (req, res, next) => {
       })
       .sort({ createdAt: -1 });
 
-    // Filter out alerts where the appointment was not found (due to status mismatch)
-    const filteredAlerts = alerts.filter((alert) => alert.appointment !== null);
+    // Filter out alerts where there is an appointment field but it was not found (due to status mismatch)
+    // But keep system alerts that don't have an appointment field at all.
+    const filteredAlerts = alerts.filter((alert) => {
+      // If the alert doesn't have an appointment field defined in its schema (or it's a system alert), keep it
+      if (!alert.appointment) return true;
+      return alert.appointment !== null;
+    });
 
     res.set({
       "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",

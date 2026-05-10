@@ -27,9 +27,13 @@ const alertSchema = new mongoose.Schema(
       ref: "Appointment",
       required: false,
     },
-    message: {
+    messageKey: {
       type: String,
       required: true,
+    },
+    params: {
+      type: mongoose.Schema.Types.Mixed,
+      required: false,
     },
     isRead: {
       type: Boolean,

@@ -434,14 +434,17 @@ export const createCard = async (req, res) => {
               staff: assigneeId,
               businessId: board.business,
               type: "kanban_assignment",
-              message: `Бяхте назначени към карта: ${title}`,
+              messageKey: "ALERTS.KANBAN_ASSIGNMENT",
+              params: { cardTitle: title },
               isRead: false,
             });
             io.to(String(assigneeId)).emit("newAlert", {
               type: "kanban_assignment",
-              message: alert.message,
+              messageKey: "ALERTS.KANBAN_ASSIGNMENT",
+              params: { cardTitle: title },
               cardId: card._id,
               title,
+              _id: alert._id,
             });
           } catch (e) {
             console.warn("Kanban assignment alert failed", e.message);
@@ -554,14 +557,17 @@ export const updateCard = async (req, res) => {
               staff: assigneeId,
               businessId: board.business,
               type: "kanban_assignment",
-              message: `Бяхте добавени към карта: ${updatedCard.title}`,
+              messageKey: "ALERTS.KANBAN_ASSIGNMENT",
+              params: { cardTitle: updatedCard.title },
               isRead: false,
             });
             io.to(String(assigneeId)).emit("newAlert", {
               type: "kanban_assignment",
-              message: alert.message,
+              messageKey: "ALERTS.KANBAN_ASSIGNMENT",
+              params: { cardTitle: updatedCard.title },
               cardId: updatedCard._id,
               title: updatedCard.title,
+              _id: alert._id,
             });
           } catch (e) {
             console.warn("Kanban assignment alert (update) failed", e.message);

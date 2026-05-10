@@ -16,24 +16,25 @@ export async function createSubscriptionPurchasedAlert(businessId, planName) {
       role: { $in: ["business", "staff"] },
     });
 
-    const message = `Новият план ${planName} е активиран за ${business.businessName}!`;
-
     const alerts = await Promise.all(
       users.map((user) =>
         Alert.create({
           staff: user._id,
           businessId: businessId,
           type: "subscription_purchased",
-          message: message,
+          messageKey: "ALERTS.SUBSCRIPTION_PURCHASED",
+          params: { planName, businessName: business.businessName },
           isRead: false,
         })
       )
     );
     // Emit socket event to all users in the business
-    users.forEach((user) => {
+    users.forEach((user, index) => {
       io.to(String(user._id)).emit("newAlert", {
+        _id: alerts[index]._id,
         type: "subscription_purchased",
-        message: message,
+        messageKey: "ALERTS.SUBSCRIPTION_PURCHASED",
+        params: { planName, businessName: business.businessName },
         businessName: business.businessName,
         planName: planName,
       });
@@ -66,7 +67,6 @@ export async function createSubscriptionExpiringAlert(
     });
 
     const formattedDate = new Date(expirationDate).toLocaleDateString("bg-BG");
-    const message = `Вашият план ${planName} изтича на ${formattedDate}. Моля, обновете абонамента си.`;
 
     const alerts = await Promise.all(
       users.map((user) =>
@@ -74,17 +74,20 @@ export async function createSubscriptionExpiringAlert(
           staff: user._id,
           businessId: businessId,
           type: "subscription_expiring",
-          message: message,
+          messageKey: "ALERTS.SUBSCRIPTION_EXPIRING",
+          params: { planName, expirationDate: formattedDate },
           isRead: false,
         })
       )
     );
 
     // Emit socket event to all users in the business
-    users.forEach((user) => {
+    users.forEach((user, index) => {
       io.to(String(user._id)).emit("newAlert", {
+        _id: alerts[index]._id,
         type: "subscription_expiring",
-        message: message,
+        messageKey: "ALERTS.SUBSCRIPTION_EXPIRING",
+        params: { planName, expirationDate: formattedDate },
         businessName: business.businessName,
         planName: planName,
         expirationDate: expirationDate,

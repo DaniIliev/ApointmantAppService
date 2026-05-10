@@ -14,6 +14,7 @@ import {
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
 import moment from "moment-timezone";
 import { requireStripe } from "../config/stripe.js";
+import { getLanguageFromHeaders } from "../utils/LanguageHelper.js";
 
 const APP_TIMEZONE = "Europe/Sofia";
 import { io } from "../index.js";
@@ -306,13 +307,15 @@ export const createAppointment = async (req, res, next) => {
       staff: staff,
       businessId: business,
       appointment: appointment._id,
-      message: `Нова заявка от ${clientName} за услуга "${srv.name}"`,
+      messageKey: "ALERTS.NEW_APPOINTMENT",
+      params: { clientName, serviceName: srv.name },
       type: "appointment",
     });
 
     // Check if user with this email exists
     const existingUser = await User.findOne({ email });
     const dashboardLink = `${process.env.CLIENT_URL}/dashboard`;
+    const language = getLanguageFromHeaders(req.headers);
 
     if (!existingUser) {
       // Create new user account for the client
@@ -344,6 +347,7 @@ export const createAppointment = async (req, res, next) => {
         endDateTime,
         biz.businessName,
         dashboardLink,
+        language,
       );
     } else {
       // Send email with appointment details and cancel link
@@ -356,6 +360,7 @@ export const createAppointment = async (req, res, next) => {
         biz.businessName,
         dashboardLink,
         appointment._id,
+        language,
       );
     }
     io.to(staff).emit("newAppointment", {
@@ -368,7 +373,8 @@ export const createAppointment = async (req, res, next) => {
           end: appointment.appointmentTime.end,
         },
       },
-      message: "Имате нова заявка за записване на час.",
+      messageKey: "ALERTS.NEW_APPOINTMENT",
+      params: { clientName: appointment.clientName, serviceName: srv.name },
       _id: newAlert._id,
     });
 
@@ -502,6 +508,8 @@ export const updateAppointmentStatus = async (req, res, next) => {
 
     await appt.save();
 
+    const language = getLanguageFromHeaders(req.headers);
+
     if (status === "confirmed" && appt.email) {
       await sendConfirmationEmail(
         appt.email,
@@ -513,6 +521,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
         `${process.env.CLIENT_URL}/dashboard`,
         null,
         appt._id,
+        language,
       );
     }
 
@@ -525,6 +534,7 @@ export const updateAppointmentStatus = async (req, res, next) => {
         appt.appointmentTime.end,
         appt.business.businessName,
         `${process.env.CLIENT_URL}/dashboard`,
+        language,
       );
     }
 
@@ -640,7 +650,8 @@ export const updateAppointment = async (req, res, next) => {
         staff: newStaff,
         businessId: appt.business._id,
         appointment: appt._id,
-        message: `Променена заявка от ${appt.clientName} за услуга "${srv.name}"`,
+        messageKey: "ALERTS.APPOINTMENT_UPDATED",
+        params: { clientName: appt.clientName, serviceName: srv.name },
         type: "appointment",
       });
 
@@ -655,7 +666,8 @@ export const updateAppointment = async (req, res, next) => {
           },
           status: appt.status,
         },
-        message: "Заявката е променена.",
+        messageKey: "ALERTS.APPOINTMENT_UPDATED",
+        params: { clientName: appt.clientName, serviceName: srv.name },
         _id: newAlert._id,
       });
     }
