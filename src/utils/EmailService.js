@@ -304,8 +304,16 @@ export const sendPlanExpirationWarning = async (
       <p><strong>${t.subscription.expiration_warning.date_label}:</strong> ${formattedDate}</p>
     </div>
     <p style="font-size: 14px; color: #666;">${t.subscription.expiration_warning.hint}</p>
+    
+    <p style="margin-top: 20px;">
+      <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/dashboard/subscription" class="button">
+        ${t.subscription.expiration_warning.action_link_text}
+      </a>
+    </p>
+
     <p style="margin-top: 30px;">${t.common.respectfully},<br/>${t.common.team} AppointDI</p>
   `;
+
 
   const mailOptions = {
     from: "appointmentappdi@gmail.com",

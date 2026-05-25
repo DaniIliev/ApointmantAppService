@@ -5,6 +5,8 @@ import { requireRole } from "../middlewares/auth.js";
 import {
   createCheckoutSession,
   getCheckoutInvoiceLink,
+  cancelSubscription,
+  listInvoices,
 } from "../controllers/stripe.controller.js";
 import authMiddleware from "../middlewares/auth.js";
 
@@ -30,7 +32,19 @@ router.get(
   getCheckoutInvoiceLink,
 );
 
-// Тук можете да добавите руут и за анулиране на абонамент
-// router.post("/cancel-subscription", authRequired, requireRole("business"), cancelSubscription);
+router.post(
+  "/cancel-subscription",
+  authMiddleware,
+  requireRole("business"),
+  cancelSubscription,
+);
+
+router.get(
+  "/invoices",
+  authMiddleware,
+  requireRole("business"),
+  listInvoices,
+);
 
 export default router;
+

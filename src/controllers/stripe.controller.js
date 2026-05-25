@@ -180,3 +180,157 @@ export const getCheckoutInvoiceLink = async (req, res) => {
     });
   }
 };
+
+/**
+ * Cancel an active subscription for a business.
+ */
+export const cancelSubscription = async (req, res) => {
+  const stripe = getStripe();
+  const businessId = req.user.businessId;
+
+  try {
+    const business = await Business.findById(businessId);
+    if (!business || !business.stripeSubscriptionId) {
+      return res.status(404).json({
+        errorCode: "SUBSCRIPTION_NOT_FOUND",
+        message: "No active subscription found for this business.",
+      });
+    }
+
+    // Cancel at period end to allow usage until the end of the paid cycle
+    const subscription = await stripe.subscriptions.update(
+      business.stripeSubscriptionId,
+      { cancel_at_period_end: true }
+    );
+
+    // Update local business status
+    business.subscriptionStatus = "canceled";
+    await business.save();
+
+    res.json({
+      message: "Subscription will be canceled at the end of the current period.",
+      subscription,
+    });
+  } catch (error) {
+    console.error("Error canceling subscription:", error);
+    res.status(500).json({
+      errorCode: "CANCEL_SUBSCRIPTION_FAILED",
+      message: "Failed to cancel subscription.",
+      details: error.message,
+    });
+  }
+};
+
+/**
+ * List all invoices for a business from Stripe.
+ */
+export const listInvoices = async (req, res) => {
+  const stripe = getStripe();
+  const businessId = req.user.businessId;
+
+  try {
+    const business = await Business.findById(businessId);
+    if (!business || !business.stripeCustomerId) {
+      return res.json({ invoices: [], defaultPaymentMethod: null });
+    }
+
+    // Fetch customer to get default payment method
+    let defaultPaymentMethod = null;
+    try {
+      // 1. Try to get from Customer's default invoice settings
+      const customer = await stripe.customers.retrieve(business.stripeCustomerId, {
+        expand: ["invoice_settings.default_payment_method"],
+      });
+
+      let pm = customer.invoice_settings?.default_payment_method;
+
+      // 2. If not found, try to get from the Subscription itself
+      if ((!pm || typeof pm === "string") && business.stripeSubscriptionId) {
+        const subscription = await stripe.subscriptions.retrieve(business.stripeSubscriptionId, {
+          expand: ["default_payment_method"],
+        });
+        if (subscription.default_payment_method && typeof subscription.default_payment_method !== "string") {
+          pm = subscription.default_payment_method;
+        }
+      }
+
+      // 3. If still not found, get the most recent payment method attached to the customer
+      if (!pm || typeof pm === "string") {
+        const paymentMethods = await stripe.paymentMethods.list({
+          customer: business.stripeCustomerId,
+          type: "card",
+          limit: 1,
+        });
+        if (paymentMethods.data.length > 0) {
+          pm = paymentMethods.data[0];
+        }
+      }
+
+      if (pm && typeof pm !== "string") {
+        defaultPaymentMethod = {
+          brand: pm.card?.brand,
+          last4: pm.card?.last4,
+          expMonth: pm.card?.exp_month,
+          expYear: pm.card?.exp_year,
+        };
+      }
+    } catch (custError) {
+      console.error("Failed to fetch customer payment method:", custError);
+    }
+
+    const invoices = await stripe.invoices.list({
+      customer: business.stripeCustomerId,
+      limit: 24, // Last 2 years if monthly
+    });
+
+    // Safety sync: If planExpiresAt is missing but we have a subscription, update it
+    if (!business.planExpiresAt && business.stripeSubscriptionId) {
+      try {
+        const subscription = await stripe.subscriptions.retrieve(business.stripeSubscriptionId);
+        business.planExpiresAt = new Date(subscription.current_period_end * 1000);
+        await business.save();
+      } catch (subError) {
+        console.error("Failed to safety sync subscription end:", subError);
+      }
+    }
+
+    res.json({
+      defaultPaymentMethod,
+      invoices: invoices.data.map((inv) => {
+        // If the invoice-level period is just a single day/moment, 
+        // try to get a more descriptive period from the first line item (usually the subscription)
+        let pStart = inv.period_start;
+        let pEnd = inv.period_end;
+
+        if ((pEnd - pStart) < 86400 && inv.lines?.data?.length > 0) {
+          const firstLine = inv.lines.data[0];
+          if (firstLine.period) {
+            pStart = firstLine.period.start;
+            pEnd = firstLine.period.end;
+          }
+        }
+
+        return {
+          id: inv.id,
+          number: inv.number,
+          amount_paid: inv.amount_paid,
+          currency: inv.currency,
+          status: inv.status,
+          created: inv.created,
+          hosted_invoice_url: inv.hosted_invoice_url,
+          invoice_pdf: inv.invoice_pdf,
+          period_start: pStart,
+          period_end: pEnd,
+        };
+      }),
+    });
+  } catch (error) {
+    console.error("Error listing invoices:", error);
+    res.status(500).json({
+      errorCode: "LIST_INVOICES_FAILED",
+      message: "Failed to fetch payment history.",
+      details: error.message,
+    });
+  }
+};
+
