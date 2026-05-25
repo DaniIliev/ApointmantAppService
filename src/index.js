@@ -23,6 +23,7 @@ import analyticsRoutes from "./routes/analytics.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import { swaggerDocs } from "./config/swagger.js";
 import { notFound, errorHandler } from "./middlewares/error.js";
+import { metricsMiddleware } from "./middlewares/metrics.js";
 import chatbot from "./chatbot/chatbot.js";
 import { startSubscriptionExpirationJob } from "./jobs/subscriptionExpirationCheck.js";
 import locationRoutes from "./routes/location.routes.js";
@@ -81,6 +82,7 @@ app.use(
   stripeConnectWebhookRoutes
 );
 app.use(express.json());
+app.use(metricsMiddleware);
 
 app.get("/", (req, res) => {
   res.send("🚀 Appointment API is running. Go to /api-docs for Swagger UI");

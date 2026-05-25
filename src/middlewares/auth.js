@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import User from "../models/User.js";
 
 const authMiddleware = (req, res, next) => {
   // Check both headers to support different frontend implementations
@@ -30,9 +31,27 @@ export default authMiddleware;
 
 export const requireRole =
   (...roles) =>
-  (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+  async (req, res, next) => {
+    if (!req.user) {
       return res.status(403).json({ message: "Forbidden" });
     }
-    next();
+
+    // Fast-path: If the role encoded in the JWT matches, proceed immediately
+    if (roles.includes(req.user.role)) {
+      return next();
+    }
+
+    // Resilient fallback: Query the database in case the user's role was updated (prevents stale JWT lockouts)
+    try {
+      const dbUser = await User.findById(req.user.id || req.user._id);
+      if (dbUser && roles.includes(dbUser.role)) {
+        req.user.role = dbUser.role; // Sync role state for current request
+        return next();
+      }
+    } catch (err) {
+      console.error("Resilient role fallback check failed:", err);
+    }
+
+    res.status(403).json({ message: "Forbidden" });
   };
+
