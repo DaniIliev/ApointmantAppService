@@ -4,6 +4,7 @@ import express from "express";
 import { requireRole } from "../middlewares/auth.js";
 import {
   createCheckoutSession,
+  createCustomerPortalSession,
   getCheckoutInvoiceLink,
   cancelSubscription,
   listInvoices,
@@ -23,6 +24,13 @@ router.post(
   authMiddleware,
   requireRole("business"),
   createCheckoutSession,
+);
+
+router.post(
+  "/customer-portal",
+  authMiddleware,
+  requireRole("business"),
+  createCustomerPortalSession,
 );
 
 router.get(

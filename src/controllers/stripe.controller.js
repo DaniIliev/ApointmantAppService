@@ -62,6 +62,14 @@ export const createCheckoutSession = async (req, res) => {
       });
     }
 
+    // Защита: Ако бизнесът вече има активен абонамент, прекъсваме създаването на нова checkout сесия.
+    if (business.stripeSubscriptionId && business.subscriptionStatus === "active" && business.plan !== "none") {
+      return res.status(400).json({
+        errorCode: "ALREADY_SUBSCRIBED",
+        message: "You already have an active subscription. Please use the Customer Portal to change your plan."
+      });
+    }
+
     const isFirstTimeSubscriber = !business.stripeCustomerId;
     const customerId = business.stripeCustomerId;
     const customerEmail = business.email;
@@ -116,6 +124,48 @@ export const createCheckoutSession = async (req, res) => {
       errorCode: "STRIPE_SESSION_FAILED",
       message: "Failed to create checkout session.",
       details: error.message,
+    });
+  }
+};
+
+/**
+ * Creates a Stripe Customer Portal session for managing subscriptions (upgrades, downgrades, cancellations).
+ */
+export const createCustomerPortalSession = async (req, res) => {
+  const stripe = getStripe();
+  if (!stripe) {
+    return res.status(500).json({
+      errorCode: "STRIPE_NOT_CONFIGURED",
+      message: "Stripe is not configured on the server."
+    });
+  }
+
+  const businessId = req.user.businessId;
+
+  try {
+    const business = await Business.findById(businessId);
+    if (!business || !business.stripeCustomerId) {
+      return res.status(404).json({
+        errorCode: "CUSTOMER_NOT_FOUND",
+        message: "Business or Stripe Customer not found. You must be subscribed first."
+      });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: business.stripeCustomerId,
+      return_url: `${FRONDEND_REDIRECT_URL}/pricing`,
+    });
+
+    res.json({
+      message: "Customer Portal session created successfully.",
+      data: { url: session.url }
+    });
+  } catch (error) {
+    console.error("Error creating customer portal session:", error);
+    res.status(500).json({
+      errorCode: "CUSTOMER_PORTAL_FAILED",
+      message: "Failed to create customer portal session.",
+      details: error.message
     });
   }
 };

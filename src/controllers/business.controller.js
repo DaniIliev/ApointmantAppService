@@ -32,6 +32,7 @@ const extractBusinessData = (body = {}) => {
     country: body.country, // Image URL (assuming it is sent in the body for simplicity,
     // but a proper file upload middleware is recommended for production)
     businessImageUrl: body.imagePreview || body.businessImageUrl,
+    referredBy: body.referredBy || undefined,
   };
 };
 

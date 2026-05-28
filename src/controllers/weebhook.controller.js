@@ -79,6 +79,42 @@ export const handleStripeWebhook = async (req, res) => {
           // Create a notification for the business owner/staff
           await createSubscriptionPurchasedAlert(updatedBusiness._id, session.metadata.planName);
 
+          // --- REFERRAL REWARD LOGIC ---
+          if (updatedBusiness.referredBy && !updatedBusiness.referralRewardClaimed) {
+            try {
+              const referrer = await Business.findById(updatedBusiness.referredBy);
+              
+              if (referrer && referrer.stripeCustomerId) {
+                // Mark this business as having claimed its reward
+                updatedBusiness.referralRewardClaimed = true;
+                await updatedBusiness.save();
+                
+                // Increment referrer's earned discount months
+                referrer.earnedDiscountMonths = (referrer.earnedDiscountMonths || 0) + 1;
+                await referrer.save();
+
+                // Create a dynamic Stripe Coupon for the accumulated months
+                const coupon = await stripe.coupons.create({
+                  percent_off: 50,
+                  duration: 'repeating',
+                  duration_in_months: referrer.earnedDiscountMonths,
+                  name: `Referral Reward (50% off for ${referrer.earnedDiscountMonths} month(s))`,
+                });
+
+                // Apply coupon to referrer's active subscription if they have one
+                if (referrer.stripeSubscriptionId && referrer.subscriptionStatus === 'active') {
+                  await stripe.subscriptions.update(referrer.stripeSubscriptionId, {
+                    coupon: coupon.id,
+                  });
+                  console.log(`🎁 [REFERRAL] Applied ${referrer.earnedDiscountMonths} month 50% discount to Business ${referrer._id}`);
+                }
+              }
+            } catch (err) {
+              console.error("❌ [REFERRAL] Error processing referral reward:", err);
+            }
+          }
+          // ------------------------------
+
           console.log(`✅ New subscription for Business ${businessId}: ${session.metadata.planName}`);
         }
         break;
