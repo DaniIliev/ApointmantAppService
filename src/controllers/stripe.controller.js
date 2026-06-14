@@ -344,8 +344,32 @@ export const listInvoices = async (req, res) => {
       }
     }
 
+    let upcomingInvoice = null;
+    let upcomingError = null;
+    if (business.stripeSubscriptionId && business.subscriptionStatus === "active") {
+      try {
+        upcomingInvoice = await stripe.invoices.createPreview({
+          customer: business.stripeCustomerId,
+          subscription: business.stripeSubscriptionId,
+        });
+      } catch (err) {
+        console.error("Failed to fetch upcoming invoice:", err.message);
+        upcomingError = err.message;
+      }
+    }
+
     res.json({
       defaultPaymentMethod,
+      upcomingInvoice: upcomingInvoice ? {
+        amount_due: upcomingInvoice.amount_due,
+        subtotal: upcomingInvoice.subtotal,
+        total: upcomingInvoice.total,
+        currency: upcomingInvoice.currency,
+        next_payment_attempt: upcomingInvoice.next_payment_attempt,
+        period_start: upcomingInvoice.period_start,
+        period_end: upcomingInvoice.period_end,
+        discount: upcomingInvoice.discount,
+      } : (upcomingError ? { error: upcomingError } : null),
       invoices: invoices.data.map((inv) => {
         // If the invoice-level period is just a single day/moment, 
         // try to get a more descriptive period from the first line item (usually the subscription)
