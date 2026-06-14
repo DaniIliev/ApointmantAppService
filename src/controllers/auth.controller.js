@@ -4,6 +4,7 @@ import User from "../models/User.js";
 import Business from "../models/Business.js";
 import { generateQrDataUrl } from "../utils/qrcode.js";
 import mongoose from "mongoose";
+import { ensureAdminSupportChannel, ensureBusinessChannel } from "../utils/chatSetup.js";
 
 export const register = async (req, res, next) => {
   try {
@@ -50,6 +51,14 @@ export const register = async (req, res, next) => {
 
       user.businessId = business._id;
       await user.save();
+
+      // Auto-create business channel
+      try {
+        await ensureBusinessChannel(business._id, user._id);
+        await ensureAdminSupportChannel(user._id);
+      } catch (chatErr) {
+        console.error("Chat channel auto-creation error:", chatErr);
+      }
     }
     const userResponse = {
       id: user._id,
@@ -113,6 +122,11 @@ export const login = async (req, res, next) => {
         _id: { $in: user.locationIds },
       }).lean();
     }
+
+    // Auto-create admin support channel on login (non-blocking)
+    ensureAdminSupportChannel(user._id).catch((err) =>
+      console.error("Auto admin_support channel error:", err)
+    );
 
     res.json({
       message: "Login successful.",

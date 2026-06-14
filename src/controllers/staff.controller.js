@@ -10,6 +10,7 @@ import { syncBusinessSubscriptionToUser } from "../utils/subscriptionSync.js";
 import StaffSchedule from "../models/StaffSchedule.js";
 import DailySchedule from "../models/DailySchedule.js";
 import Service from "../models/Service.js";
+import { addUserToBusinessChannels, ensureAdminSupportChannel } from "../utils/chatSetup.js";
 
 export const listBusinessStaff = async (req, res, next) => {
   try {
@@ -176,6 +177,14 @@ export const inviteStaff = async (req, res, next) => {
       }
       throw error;
     }
+
+    // Add new staff to business chat channels (non-blocking)
+    addUserToBusinessChannels(newStaff._id, business._id, normalizedLocationIds).catch(err =>
+      console.error("Chat channel add-member error:", err)
+    );
+    ensureAdminSupportChannel(newStaff._id).catch(err =>
+      console.error("Admin support channel error:", err)
+    );
   } catch (error) {
     next(error);
   }

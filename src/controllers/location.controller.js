@@ -1,6 +1,7 @@
 import Location from "../models/Location.js";
 import Business from "../models/Business.js";
 import User from "../models/User.js";
+import { ensureLocationChannel, ensureClientLocationChannel } from "../utils/chatSetup.js";
 
 const getDefaultWeeklyWorkingHours = () => ({
   monday: { isDayOff: false, workTime: { start: null, end: null } },
@@ -146,6 +147,15 @@ export const createLocation = async (req, res, next) => {
       imageUrl,
       weeklyWorkingHours: getDefaultWeeklyWorkingHours(),
     });
+
+    // Auto-create location chat channels
+    try {
+      const userId = req.user.id || req.user._id;
+      await ensureLocationChannel(business._id, location._id, name, userId);
+      await ensureClientLocationChannel(business._id, location._id, name, userId);
+    } catch (chatErr) {
+      console.error("Location chat channel auto-creation error:", chatErr);
+    }
 
     res.status(201).json({
       message: "Location created successfully.",
