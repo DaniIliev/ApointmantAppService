@@ -36,7 +36,7 @@ router.post("/", async (req, res, next) => {
 router.get("/status", (req, res) => {
   res.status(200).json({
     initialized: true,
-    engine: "gemini-2.0-flash",
+    engine: "gemini-2.5-flash",
   });
 });
 

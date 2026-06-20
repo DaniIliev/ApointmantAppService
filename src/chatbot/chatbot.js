@@ -35,7 +35,7 @@ class Chatbot {
   _createModelWithSystemPrompt(systemPrompt) {
     const genAI = this._getGenAI();
     return genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.5-flash",
       systemInstruction: { parts: [{ text: systemPrompt }] },
     });
   }
