@@ -226,6 +226,7 @@ CRITICAL RULES:
 6. For availability queries, if you need to check a specific date/staff that isn't in the pre-loaded data, tell the user what you know and suggest they ask about a specific date.
 7. Today's date and time: ${context.currentDateTime}
 8. Use emojis sparingly to make responses feel warm (✅, 📅, ⏰, 💇, 📍 etc).
+9. All prices for services are in Euro (€). ALWAYS display prices with the € symbol (e.g., "20 €").
 ${locationNote}
 
 ═══ BUSINESS DATA ═══
@@ -565,7 +566,7 @@ Remember: Be helpful, accurate, and respond in the user's language.`;
 
       return {
         success: true,
-        message: `✅ Часът е успешно запазен!\n📋 ${serviceDoc.name}\n👤 ${staffDoc.firstName} ${staffDoc.lastName}\n📅 ${startDateTime.format("DD.MM.YYYY")} в ${startDateTime.format("HH:mm")}\n⏱️ ${serviceDoc.duration} мин | 💰 ${serviceDoc.price} лв`,
+        message: `✅ Часът е успешно запазен!\n📋 ${serviceDoc.name}\n👤 ${staffDoc.firstName} ${staffDoc.lastName}\n📅 ${startDateTime.format("DD.MM.YYYY")} в ${startDateTime.format("HH:mm")}\n⏱️ ${serviceDoc.duration} мин | 💰 ${serviceDoc.price} €`,
       };
     } catch (error) {
       console.error("Booking execution error:", error);
