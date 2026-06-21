@@ -3,6 +3,8 @@ import User from "../models/User.js";
 import DailySchedule from "../models/DailySchedule.js";
 import mongoose from "mongoose";
 import Location from "../models/Location.js";
+import Appointment from "../models/Appointment.js";
+import { sendAppointmentCancelledEmail } from "../utils/EmailService.js";
 
 const isTimeValid = (timeStr) => {
   if (!timeStr) return false;
@@ -605,13 +607,53 @@ export const updateDailySchedule = async (req, res, next) => {
       });
       // ────────────────────────────────────────────────────
 
-      dailySchedule.workHours[index] = {
-        ...dailySchedule.workHours[index].toObject(),
-        ...workHour,
-        date: workHour.date
-          ? new Date(workHour.date)
-          : dailySchedule.workHours[index].date,
+      const oldDay = dailySchedule.workHours[index];
+      let changesText = [];
+      if (oldDay.isDayOff !== workHour.isDayOff) {
+        changesText.push(`Day Off: ${oldDay.isDayOff} -> ${workHour.isDayOff}`);
+      }
+      if (
+        workHour.workTime &&
+        (oldDay.workTime?.start !== workHour.workTime?.start ||
+          oldDay.workTime?.end !== workHour.workTime?.end)
+      ) {
+        changesText.push(
+          `Work time: ${oldDay.workTime?.start || "N/A"}-${
+            oldDay.workTime?.end || "N/A"
+          } -> ${workHour.workTime?.start || "N/A"}-${
+            workHour.workTime?.end || "N/A"
+          }`,
+        );
+      }
+      if (workHour.breaks !== undefined) {
+        const oldBreaks = oldDay.breaks || [];
+        const newBreaks = workHour.breaks || [];
+        const formatBreaks = (brks) => brks.length > 0 ? brks.map(b => `${b.start || "N/A"}-${b.end || "N/A"}`).join(", ") : "None";
+        if (JSON.stringify(oldBreaks) !== JSON.stringify(newBreaks)) {
+           changesText.push(`Breaks: ${formatBreaks(oldBreaks)} -> ${formatBreaks(newBreaks)}`);
+        }
+      }
+      if (changesText.length === 0) changesText.push("Updated hours details");
+
+      const requestUser = await User.findById(userId);
+      const userName = requestUser?.firstName
+        ? `${requestUser.firstName} ${requestUser.lastName || ''}`.trim()
+        : requestUser?.email || "Unknown User";
+
+      const newHistoryEntry = {
+        updatedAt: new Date(),
+        updatedBy: userName,
+        changes: changesText.join(" | "),
       };
+
+      if (!oldDay.history) oldDay.history = [];
+      oldDay.history.push(newHistoryEntry);
+      
+      oldDay.isDayOff = workHour.isDayOff !== undefined ? workHour.isDayOff : oldDay.isDayOff;
+      oldDay.workTime = workHour.workTime || oldDay.workTime;
+      oldDay.breaks = workHour.breaks || oldDay.breaks;
+      if (workHour.date) oldDay.date = new Date(workHour.date);
+      oldDay.lastUpdated = new Date();
     } else {
       return res.status(400).json({
         errorCode: "INVALID_PAYLOAD",
@@ -741,6 +783,81 @@ export const getDailyView = async (req, res, next) => {
     }
 
     res.status(200).json(Array.from(grouped.values()));
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- GET /api/staff-schedules/affected-appointments ---
+export const getAffectedAppointments = async (req, res, next) => {
+  try {
+    let { staffId, scheduleId, date } = req.query;
+    
+    if (!staffId && scheduleId) {
+      const schedule = await StaffSchedule.findById(scheduleId);
+      if (schedule) staffId = schedule.staff?.toString();
+    }
+
+    if (!staffId || !date) {
+      return res.status(400).json({ errorCode: "MISSING_REQUIRED_FIELDS", message: "staffId (or scheduleId) and date are required" });
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const appointments = await Appointment.find({
+      staff: staffId,
+      status: { $in: ["pending", "confirmed"] },
+      "appointmentTime.start": { $gte: startOfDay, $lte: endOfDay }
+    }).select("clientName clientPhone email appointmentTime title status");
+
+    res.status(200).json(appointments);
+  } catch (e) {
+    next(e);
+  }
+};
+
+// --- POST /api/staff-schedules/notify-day-off ---
+export const notifyDayOff = async (req, res, next) => {
+  try {
+    const { appointmentIds, customMessage } = req.body;
+
+    if (!appointmentIds || !Array.isArray(appointmentIds)) {
+      return res.status(400).json({ errorCode: "INVALID_PAYLOAD", message: "appointmentIds array is required" });
+    }
+
+    const appointments = await Appointment.find({ _id: { $in: appointmentIds } })
+      .populate("business", "name")
+      .populate("service", "name");
+
+    for (const appt of appointments) {
+      if (appt.email) {
+        const businessName = appt.business?.name || "Business";
+        const serviceName = appt.service?.name || appt.title || "Service";
+        const dashboardLink = process.env.CLIENT_URL || "http://localhost:3000";
+
+        await sendAppointmentCancelledEmail(
+          appt.email,
+          appt.clientName || "Client",
+          serviceName,
+          appt.appointmentTime.start,
+          appt.appointmentTime.end,
+          businessName,
+          dashboardLink,
+          "bg",
+          customMessage
+        );
+      }
+      
+      // Optionally update status to cancelled
+      appt.status = "cancelled";
+      await appt.save();
+    }
+
+    res.status(200).json({ message: "Clients notified and appointments cancelled." });
   } catch (e) {
     next(e);
   }

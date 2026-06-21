@@ -8,6 +8,8 @@ import {
   updateDailySchedule,
   deleteSchedule,
   getDailyView,
+  getAffectedAppointments,
+  notifyDayOff,
 } from "../controllers/staffSchedule.controller.js";
 import authMiddleware from "../middlewares/auth.js";
 
@@ -38,5 +40,8 @@ router
   .route("/:id/details")
   .get(authMiddleware, getDailySchedule) // Извличане на детайлен дневен график
   .put(authMiddleware, updateDailySchedule); // Обновяване на детайлния дневен график
+
+router.get("/appointments/affected", authMiddleware, getAffectedAppointments);
+router.post("/appointments/notify-day-off", authMiddleware, notifyDayOff);
 
 export default router;

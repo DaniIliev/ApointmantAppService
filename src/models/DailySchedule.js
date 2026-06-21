@@ -16,6 +16,14 @@ const WorkHourSchema = new mongoose.Schema({
   isDayOff: { type: Boolean, default: false },
   workTime: { type: TimeRangeSchema },
   breaks: [TimeRangeSchema],
+  lastUpdated: { type: Date, default: Date.now },
+  history: [
+    {
+      updatedAt: { type: Date, default: Date.now },
+      updatedBy: { type: String }, // Store name or ID
+      changes: { type: String },
+    },
+  ],
 });
 
 const DailyScheduleSchema = new mongoose.Schema({

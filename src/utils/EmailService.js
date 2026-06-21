@@ -246,15 +246,18 @@ export const sendAppointmentCancelledEmail = async (
   businessName,
   dashboardLink,
   language = "bg",
+  customMessage = null
 ) => {
   const t = loadTranslations(language);
   const formattedStartTime = moment(startTime).format("HH:mm");
   const formattedEndTime = moment(endTime).format("HH:mm");
   const formattedDate = moment(startTime).format("DD.MM.YYYY");
 
+  const messageText = customMessage ? customMessage : t.cancellation.message;
+
   let content = `
     <h2>${t.common.hello}, ${clientName}!</h2>
-    <p>${t.cancellation.message}</p>
+    <p>${messageText}</p>
     
     <div class="info-card" style="border-left: 4px solid #ffc107;">
       <h3>${t.cancellation.cancelled_details}:</h3>
