@@ -23,6 +23,13 @@ import DailySchedule from "./src/models/DailySchedule.js";
 import StaffSchedule from "./src/models/StaffSchedule.js";
 import Appointment from "./src/models/Appointment.js";
 import Location from "./src/models/Location.js";
+import {
+  ensureAdminSupportChannel,
+  ensureBusinessChannel,
+  ensureLocationChannel,
+  ensureClientLocationChannel,
+  addUserToBusinessChannels,
+} from "./src/utils/chatSetup.js";
 
 dotenv.config();
 
@@ -98,9 +105,23 @@ const seedAndTest = async () => {
     await User.deleteMany({ email: { $in: allEmails } });
     console.log("   ✔ Почистено.\n");
 
-    // ── 2. Business Owner ──────────────────────────────────────────────
+    // ── 2. Admin User ──────────────────────────────────────────────────
     const passwordHash = await bcrypt.hash("Test1234!", 10);
 
+    const adminEmail = "admin@appointdi.com";
+    await User.deleteOne({ email: adminEmail });
+    console.log("🛡️  Създаване на системен администратор...");
+    await User.create({
+      email: adminEmail,
+      firstName: "AppointDI",
+      lastName: "Support",
+      phone: "+359000000000",
+      role: "admin",
+      passwordHash,
+      profilePictureUrl: "https://api.dicebear.com/9.x/avataaars/svg?seed=Support",
+    });
+
+    // ── 3. Business Owner ──────────────────────────────────────────────
     console.log("👤  Създаване на собственик...");
     let owner = await User.create({
       email: ownerEmail,
@@ -139,6 +160,10 @@ const seedAndTest = async () => {
     owner.subscriptionStatus = "active";
     await owner.save();
 
+    // Създаване на бизнес канали
+    await ensureBusinessChannel(business._id, owner._id);
+    await ensureAdminSupportChannel(owner._id);
+
     // ── 4. Locations ───────────────────────────────────────────────────
     console.log("📍  Създаване на 2 локации...");
 
@@ -163,6 +188,8 @@ const seedAndTest = async () => {
     });
     assert(loc1._id, "Location 1 _id трябва да съществува");
     counters.locations++;
+    await ensureLocationChannel(business._id, loc1._id, loc1.name, owner._id);
+    await ensureClientLocationChannel(business._id, loc1._id, loc1.name, owner._id);
 
     const loc2 = await Location.create({
       businessId: business._id,
@@ -185,6 +212,8 @@ const seedAndTest = async () => {
     });
     assert(loc2._id, "Location 2 _id трябва да съществува");
     counters.locations++;
+    await ensureLocationChannel(business._id, loc2._id, loc2.name, owner._id);
+    await ensureClientLocationChannel(business._id, loc2._id, loc2.name, owner._id);
 
     // ── 5. Staff ───────────────────────────────────────────────────────
     console.log("👥  Създаване на 6 служителя (3 + 3)...");
@@ -218,6 +247,9 @@ const seedAndTest = async () => {
       assert(s._id, `Staff ${cfg.firstName} _id трябва да съществува`);
       staffMembers.push({ user: s, location: cfg.location });
       counters.users++;
+
+      await addUserToBusinessChannels(s._id, business._id, [cfg.location._id]);
+      await ensureAdminSupportChannel(s._id);
     }
 
     // ── 6. Services ────────────────────────────────────────────────────
@@ -316,6 +348,8 @@ const seedAndTest = async () => {
       assert(cl._id, `Client ${cc.firstName} _id трябва да съществува`);
       clients.push(cl);
       counters.users++;
+
+      await ensureAdminSupportChannel(cl._id);
     }
 
     // ── 9. Appointments — 20 на служител ───────────────────────────────

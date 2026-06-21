@@ -5,6 +5,7 @@ import Business from "../models/Business.js";
 import { generateQrDataUrl } from "../utils/qrcode.js";
 import mongoose from "mongoose";
 import { ensureAdminSupportChannel, ensureBusinessChannel } from "../utils/chatSetup.js";
+import { getLanguageFromHeaders } from "../utils/LanguageHelper.js";
 
 export const register = async (req, res, next) => {
   try {
@@ -54,8 +55,9 @@ export const register = async (req, res, next) => {
 
       // Auto-create business channel
       try {
+        const language = getLanguageFromHeaders(req.headers);
         await ensureBusinessChannel(business._id, user._id);
-        await ensureAdminSupportChannel(user._id);
+        await ensureAdminSupportChannel(user._id, language);
       } catch (chatErr) {
         console.error("Chat channel auto-creation error:", chatErr);
       }
@@ -124,7 +126,8 @@ export const login = async (req, res, next) => {
     }
 
     // Auto-create admin support channel on login (non-blocking)
-    ensureAdminSupportChannel(user._id).catch((err) =>
+    const language = getLanguageFromHeaders(req.headers);
+    ensureAdminSupportChannel(user._id, language).catch((err) =>
       console.error("Auto admin_support channel error:", err)
     );
 

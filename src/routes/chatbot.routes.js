@@ -40,4 +40,31 @@ router.get("/status", (req, res) => {
   });
 });
 
+// ─── Business Help Chatbot ──────────────────────────────────────
+router.post("/business-help", async (req, res, next) => {
+  try {
+    const { message, userId } = req.body;
+    if (!message) {
+      return res.status(400).json({
+        message:
+          "Message is required. Expected JSON: { message, userId? }",
+      });
+    }
+
+    const trimmedMessage = String(message).trim();
+    if (!trimmedMessage) {
+      return res.status(400).json({ message: "Message cannot be empty." });
+    }
+
+    const response = await chatbot.processBusinessHelp(
+      trimmedMessage,
+      userId || "guest"
+    );
+    res.status(200).json({ response });
+  } catch (error) {
+    console.error("Business help chatbot route error:", error);
+    res.status(500).json({ message: "Business help chatbot internal error" });
+  }
+});
+
 export default router;

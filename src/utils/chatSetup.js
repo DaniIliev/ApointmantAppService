@@ -5,7 +5,7 @@ import User from "../models/User.js";
  * Ensure an admin_support channel exists for a given user.
  * Called after registration or first login.
  */
-export async function ensureAdminSupportChannel(userId) {
+export async function ensureAdminSupportChannel(userId, language = "bg") {
   const existing = await Channel.findOne({
     type: "admin_support",
     "members.user": userId,
@@ -31,6 +31,7 @@ export async function ensureAdminSupportChannel(userId) {
   const channel = await Channel.create({
     type: "admin_support",
     name: "Support",
+    avatar: "/AppointmantPro.png",
     members,
     createdBy: userId,
   });
@@ -40,15 +41,25 @@ export async function ensureAdminSupportChannel(userId) {
     const adminId = admins[0]._id;
     const adminUser = await User.findById(adminId);
     
+    // Ensure the admin user has the logo as avatar (if not set by seed)
+    if (!adminUser.profilePictureUrl || adminUser.profilePictureUrl.includes("dicebear")) {
+      adminUser.profilePictureUrl = "/AppointmantPro.png";
+      await adminUser.save();
+    }
+
+    const textBg = "Здравейте и добре дошли! При въпроси или нужда от съдействие можете да се свържете с нас по всяко време. Ще ви отговорим възможно най-скоро.";
+    const textEn = "Hello and welcome! If you have any questions or need assistance, please feel free to contact us at any time. We will respond as soon as possible.";
+    const welcomeText = language === "en" ? textEn : textBg;
+    
     await Message.create({
       channel: channel._id,
       sender: adminId,
       type: "text",
-      text: "Здравейте! Как можем да ви помогнем днес?",
+      text: welcomeText,
     });
 
     channel.lastMessage = {
-      text: "Здравейте! Как можем да ви помогнем днес?",
+      text: welcomeText,
       sender: adminId,
       senderName: adminUser ? `${adminUser.firstName} ${adminUser.lastName}` : "Support",
       sentAt: new Date(),
