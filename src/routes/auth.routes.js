@@ -36,6 +36,7 @@ const handleCallback = (req, res) => {
       firstName: req.user.firstName,
       lastName: req.user.lastName,
       businessId: req.user.businessId,
+      oauthPicture: req.user.oauthPicture,
     }),
   );
 

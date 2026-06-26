@@ -209,7 +209,7 @@ export const getUserById = async (req, res, next) => {
 
 export const updateUser = async (req, res, next) => {
   const { id } = req.params;
-  const { firstName, lastName, phone, primaryColor, theme } = req.body;
+  const { firstName, lastName, phone, primaryColor, theme, profilePictureUrl } = req.body;
 
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({ 
@@ -225,6 +225,7 @@ export const updateUser = async (req, res, next) => {
     if (phone) updateFields.phone = phone;
     if (primaryColor) updateFields.primaryColor = primaryColor;
     if (theme) updateFields.theme = theme;
+    if (profilePictureUrl !== undefined) updateFields.profilePictureUrl = profilePictureUrl;
 
     const updatedUser = await User.findByIdAndUpdate(
       id,
