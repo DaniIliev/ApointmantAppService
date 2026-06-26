@@ -51,6 +51,7 @@ passport.use(
       callbackURL: "/api/auth/facebook/callback",
       profileFields: ["id", "emails", "name"],
       proxy: true,
+      graphAPIVersion: "v19.0",
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
