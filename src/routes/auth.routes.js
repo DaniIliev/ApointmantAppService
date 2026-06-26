@@ -36,6 +36,7 @@ const handleCallback = (req, res) => {
       firstName: req.user.firstName,
       lastName: req.user.lastName,
       businessId: req.user.businessId,
+      oauthPicture: req.user.oauthPicture,
     }),
   );
 
@@ -65,7 +66,7 @@ router.get(
 
 router.get(
   "/facebook",
-  passport.authenticate("facebook", { scope: ["email"] }),
+  passport.authenticate("facebook", { scope: ["public_profile"] }),
 );
 router.get(
   "/facebook/callback",

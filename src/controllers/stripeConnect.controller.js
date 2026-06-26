@@ -5,6 +5,8 @@ import {
   sendPaymentCapturedEmail,
 } from "../utils/EmailService.js";
 
+const FRONTEND_URL =  process.env.CLIENT_URL || "http://localhost:3000";
+
 /**
  * Създава или връща Stripe Connect Account Link за onboarding
  * Използва се когато бизнесът иска да приеме плащания с карта
@@ -18,7 +20,10 @@ export const createConnectAccountLink = async (req, res, next) => {
     // Намираме бизнеса на текущия потребител
     const business = await Business.findOne({ owner: userId });
     if (!business) {
-      return res.status(404).json({ message: "Business not found" });
+      return res.status(404).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found." 
+      });
     }
 
     let accountId = business.stripeConnectAccountId;
@@ -51,14 +56,18 @@ export const createConnectAccountLink = async (req, res, next) => {
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
       refresh_url:
-        refreshUrl || `${process.env.FRONTEND_URL}/settings/payments`,
-      return_url: returnUrl || `${process.env.FRONTEND_URL}/settings/payments`,
+        refreshUrl || `${FRONTEND_URL}/settings/payments`,
+      return_url: returnUrl || `${FRONTEND_URL}/settings/payments`,
       type: "account_onboarding",
     });
 
     res.json({
-      url: accountLink.url,
-      onboardingUrl: accountLink.url,
+      message: "Connect account link created successfully.",
+      messageCode: "STRIPE_CONNECT_LINK_CREATED",
+      data: {
+        url: accountLink.url,
+        onboardingUrl: accountLink.url,
+      }
     });
   } catch (error) {
     console.error("Error creating Connect account link:", error);
@@ -77,7 +86,10 @@ export const getConnectAccountStatus = async (req, res, next) => {
 
     const business = await Business.findOne({ owner: userId });
     if (!business) {
-      return res.status(404).json({ message: "Business not found" });
+      return res.status(404).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found." 
+      });
     }
 
     // Ако няма Connect Account, значи не е конфигуриран
@@ -87,7 +99,8 @@ export const getConnectAccountStatus = async (req, res, next) => {
         ready: false,
         details_submitted: false,
         charges_enabled: false,
-        message: "Stripe Connect account not yet created",
+        message: "Stripe Connect account not yet created.",
+        errorCode: "CONNECT_ACCOUNT_NOT_CREATED"
       });
     }
 
@@ -127,14 +140,18 @@ export const createCheckoutSession = async (req, res, next) => {
     const service = await Service.findById(serviceId).populate("business");
 
     if (!service) {
-      return res.status(404).json({ message: "Service not found" });
+      return res.status(404).json({ 
+        errorCode: "SERVICE_NOT_FOUND",
+        message: "Service not found." 
+      });
     }
 
     const business = service.business;
 
     if (!business.stripeConnectAccountId) {
       return res.status(400).json({
-        message: "Business has not configured Stripe Connect",
+        errorCode: "STRIPE_NOT_CONFIGURED",
+        message: "Business has not configured Stripe Connect."
       });
     }
 
@@ -145,7 +162,8 @@ export const createCheckoutSession = async (req, res, next) => {
 
     if (!account.charges_enabled) {
       return res.status(400).json({
-        message: "Business Stripe account is not ready to accept payments",
+        errorCode: "CONNECT_ACCOUNT_NOT_READY",
+        message: "Business Stripe account is not ready to accept payments."
       });
     }
 
@@ -188,8 +206,8 @@ export const createCheckoutSession = async (req, res, next) => {
         },
         success_url:
           successUrl ||
-          `${process.env.FRONTEND_URL}/booking/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: cancelUrl || `${process.env.FRONTEND_URL}/booking/cancel`,
+          `${FRONTEND_URL}/booking/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: cancelUrl || `${FRONTEND_URL}/booking/cancel`,
         metadata: {
           serviceId: serviceId,
           businessId: business._id.toString(),
@@ -202,8 +220,12 @@ export const createCheckoutSession = async (req, res, next) => {
     );
 
     res.json({
-      sessionId: session.id,
-      url: session.url,
+      message: "Checkout session created successfully.",
+      messageCode: "STRIPE_SESSION_CREATED",
+      data: {
+        sessionId: session.id,
+        url: session.url,
+      }
     });
   } catch (error) {
     console.error("Error creating checkout session:", error);
@@ -222,7 +244,8 @@ export const createDashboardLink = async (req, res, next) => {
     const business = await Business.findOne({ owner: userId });
     if (!business || !business.stripeConnectAccountId) {
       return res.status(404).json({
-        message: "Stripe Connect account not found",
+        errorCode: "CONNECT_ACCOUNT_NOT_FOUND",
+        message: "Stripe Connect account not found."
       });
     }
 
@@ -231,7 +254,9 @@ export const createDashboardLink = async (req, res, next) => {
     );
 
     res.json({
-      url: loginLink.url,
+      message: "Dashboard link created successfully.",
+      messageCode: "STRIPE_DASHBOARD_LINK_CREATED",
+      data: { url: loginLink.url }
     });
   } catch (error) {
     console.error("Error creating dashboard link:", error);

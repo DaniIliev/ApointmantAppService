@@ -2,7 +2,13 @@
 
 import express from "express";
 import { requireRole } from "../middlewares/auth.js";
-import { createCheckoutSession } from "../controllers/stripe.controller.js";
+import {
+  createCheckoutSession,
+  createCustomerPortalSession,
+  getCheckoutInvoiceLink,
+  cancelSubscription,
+  listInvoices,
+} from "../controllers/stripe.controller.js";
 import authMiddleware from "../middlewares/auth.js";
 
 const router = express.Router();
@@ -17,10 +23,36 @@ router.post(
   "/checkout-session",
   authMiddleware,
   requireRole("business"),
-  createCheckoutSession
+  createCheckoutSession,
 );
 
-// Тук можете да добавите руут и за анулиране на абонамент
-// router.post("/cancel-subscription", authRequired, requireRole("business"), cancelSubscription);
+router.post(
+  "/customer-portal",
+  authMiddleware,
+  requireRole("business"),
+  createCustomerPortalSession,
+);
+
+router.get(
+  "/checkout-invoice",
+  authMiddleware,
+  requireRole("business"),
+  getCheckoutInvoiceLink,
+);
+
+router.post(
+  "/cancel-subscription",
+  authMiddleware,
+  requireRole("business"),
+  cancelSubscription,
+);
+
+router.get(
+  "/invoices",
+  authMiddleware,
+  requireRole("business"),
+  listInvoices,
+);
 
 export default router;
+

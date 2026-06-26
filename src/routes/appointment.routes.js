@@ -21,7 +21,7 @@ router.get("/business/:businessId", authMiddleware, listBusinessAppointments);
 router.get("/availability", getFreeSlots);
 router.get("/closest-slot", getClosestAvailableSlot);
 router.get("/:id", getAppointmentById);
-router.put("/:id/status", authMiddleware, updateAppointmentStatus);
+router.put("/:id/status", updateAppointmentStatus);
 router.put("/:id", authMiddleware, updateAppointment);
 router.delete("/:id", authMiddleware, deleteAppointment);
 

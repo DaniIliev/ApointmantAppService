@@ -2,6 +2,7 @@ import User from "../models/User.js";
 import Business from "../models/Business.js";
 import { sendPlanExpirationWarning } from "../utils/EmailService.js";
 import { createSubscriptionExpiringAlert } from "../utils/alertService.js";
+import { getLanguageFromBusiness } from "../utils/LanguageHelper.js";
 import cron from "node-cron";
 
 /**
@@ -35,6 +36,8 @@ console.log(`[SubscriptionJob] Checking ${label}: ${startWindow.toLocaleString('
       const business = await Business.findById(owner.businessId);
       if (!business) continue;
 
+      const language = await getLanguageFromBusiness(business._id);
+
       // Get all users associated with this business (including staff)
       const users = await User.find({
         businessId: business._id,
@@ -57,7 +60,8 @@ console.log(`[SubscriptionJob] Checking ${label}: ${startWindow.toLocaleString('
             user.lastName || "",
             owner.subscriptionPlan,
             owner.subscriptionCurrentPeriodEnd,
-            business.businessName
+            business.businessName,
+            language
           );
         }
       }

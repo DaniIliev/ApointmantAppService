@@ -32,6 +32,7 @@ const extractBusinessData = (body = {}) => {
     country: body.country, // Image URL (assuming it is sent in the body for simplicity,
     // but a proper file upload middleware is recommended for production)
     businessImageUrl: body.imagePreview || body.businessImageUrl,
+    referredBy: body.referredBy || undefined,
   };
 };
 
@@ -48,7 +49,10 @@ export const createBusiness = async (req, res, next) => {
     }
 
     if (!data.businessName) {
-      return res.status(400).json({ message: "Име на бизнеса е задължително" });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "Business name is required." 
+      });
     }
 
     const business = await Business.create({
@@ -69,7 +73,11 @@ export const createBusiness = async (req, res, next) => {
       businessId: business._id,
     });
 
-    res.status(201).json(business);
+    res.status(201).json({
+      message: "Business created successfully.",
+      messageCode: "BUSINESS_CREATED",
+      data: business
+    });
   } catch (e) {
     next(e);
   }
@@ -94,13 +102,19 @@ export const updateBusiness = async (req, res, next) => {
         !req.user.businessId ||
         String(req.user.businessId) !== String(businessId)
       ) {
-        return res.status(403).json({ message: "Нямате права за този бизнес" });
+        return res.status(403).json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "You do not have permission for this business." 
+        });
       }
       filter = { _id: businessId };
     }
 
     if (!filter) {
-      return res.status(403).json({ message: "Нямате права за тази операция" });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You do not have permission for this operation." 
+      });
     }
 
     const business = await Business.findOneAndUpdate(
@@ -110,12 +124,18 @@ export const updateBusiness = async (req, res, next) => {
     ).lean();
 
     if (!business) {
-      return res
-        .status(404)
-        .json({ message: "Business не е намерен или не е ваш" });
+      return res.status(404)
+        .json({ 
+          errorCode: "BUSINESS_NOT_FOUND",
+          message: "Business not found or is not yours." 
+        });
     }
 
-    res.json(business);
+    res.json({
+      message: "Business updated successfully.",
+      messageCode: "BUSINESS_UPDATED",
+      data: business
+    });
   } catch (e) {
     next(e);
   }
@@ -136,7 +156,10 @@ export const getBusinessById = async (req, res, next) => {
     const business = await Business.findById(businessId).lean();
 
     if (!business) {
-      return res.status(404).json({ message: "Business не е намерен" });
+      return res.status(404).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found." 
+      });
     }
 
     res.json(business);

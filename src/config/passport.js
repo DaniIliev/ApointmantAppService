@@ -34,6 +34,7 @@ passport.use(
             });
           }
         }
+        user.oauthPicture = profile.photos && profile.photos[0] ? profile.photos[0].value : null;
         return done(null, user);
       } catch (error) {
         return done(error, null);
@@ -49,8 +50,9 @@ passport.use(
       clientID: process.env.FACEBOOK_APP_ID,
       clientSecret: process.env.FACEBOOK_APP_SECRET,
       callbackURL: "/api/auth/facebook/callback",
-      profileFields: ["id", "emails", "name"],
+      profileFields: ["id", "emails", "name", "picture.type(large)"],
       proxy: true,
+      graphAPIVersion: "v19.0",
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
@@ -73,6 +75,7 @@ passport.use(
             });
           }
         }
+        user.oauthPicture = profile.photos && profile.photos[0] ? profile.photos[0].value : null;
         return done(null, user);
       } catch (error) {
         return done(error, null);

@@ -25,7 +25,10 @@ export const subscribe = async (req, res) => {
     const userId = req.user.id;
 
     if (!subscription || !subscription.endpoint) {
-      return res.status(400).json({ message: 'Invalid subscription object' });
+      return res.status(400).json({ 
+        errorCode: "INVALID_SUBSCRIPTION",
+        message: 'Invalid subscription object.' 
+      });
     }
 
     // Save to DB (Update if endpoint already exists)
@@ -35,10 +38,16 @@ export const subscribe = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    res.status(201).json({ message: 'Subscribed successfully' });
+    res.status(201).json({ 
+      errorCode: "SUBSCRIBED_SUCCESSFULLY",
+      message: 'Subscribed successfully.' 
+    });
   } catch (error) {
     console.error('Error in notification subscription:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ 
+      errorCode: "SERVER_ERROR",
+      message: 'Internal server error.' 
+    });
   }
 };
 
@@ -55,7 +64,10 @@ export const sendNotification = async (req, res) => {
     const subscriptions = await PushSubscription.find({ userId });
 
     if (!subscriptions || subscriptions.length === 0) {
-      return res.status(404).json({ message: 'No subscriptions found for this user' });
+      return res.status(404).json({ 
+        errorCode: "NO_SUBSCRIPTIONS_FOUND",
+        message: 'No subscriptions found for this user.' 
+      });
     }
 
     const payload = JSON.stringify({ title, body, url });
@@ -72,9 +84,15 @@ export const sendNotification = async (req, res) => {
     });
 
     await Promise.all(notificationPromises);
-    res.json({ message: 'Notifications sent' });
+    res.json({ 
+      errorCode: "NOTIFICATIONS_SENT",
+      message: 'Notifications sent.' 
+    });
   } catch (error) {
     console.error('Error sending notification:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ 
+      errorCode: "SERVER_ERROR",
+      message: 'Internal server error.' 
+    });
   }
 };

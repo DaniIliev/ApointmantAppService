@@ -10,27 +10,35 @@ import { syncBusinessSubscriptionToUser } from "../utils/subscriptionSync.js";
 import StaffSchedule from "../models/StaffSchedule.js";
 import DailySchedule from "../models/DailySchedule.js";
 import Service from "../models/Service.js";
+import { addUserToBusinessChannels, ensureAdminSupportChannel } from "../utils/chatSetup.js";
 
 export const listBusinessStaff = async (req, res, next) => {
   try {
-    const { businessId, locationId } = req.query;
+    const { businessId, locationId, ignoreLocation } = req.query;
     const headerLocationId = req.headers["x-location-id"];
-    const effectiveLocationId = locationId || headerLocationId;
+    const effectiveLocationId = ignoreLocation === "true" ? null : (locationId || headerLocationId);
 
     if (!businessId) {
-      return res
-        .status(400)
-        .json({ message: "businessId е задължителен в заявката." });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "businessId is required in the request." 
+      });
     }
     const business = await Business.findById(businessId);
     if (!business) {
-      return res.status(404).json({ message: "Бизнесът не е намерен." });
+      return res.status(404).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found." 
+      });
     }
 
     const filter = {
       businessId: business._id,
     };
-    if (effectiveLocationId) {
+    
+    const isValidLocation = effectiveLocationId && mongoose.Types.ObjectId.isValid(effectiveLocationId);
+
+    if (isValidLocation) {
       filter.$or = [
         { role: "business" },
         { role: "manager", locationIds: { $in: [effectiveLocationId] } },
@@ -45,7 +53,7 @@ export const listBusinessStaff = async (req, res, next) => {
     if (onlyWithServices === "true") {
       const serviceFilter = { business: business._id };
       if (effectiveLocationId) {
-        serviceFilter.locationId = effectiveLocationId;
+        serviceFilter.locationIds = { $in: [effectiveLocationId] };
       }
       const services = await Service.find(serviceFilter).select("staffMembers");
 
@@ -86,7 +94,8 @@ export const inviteStaff = async (req, res, next) => {
     const business = await Business.findOne({ owner: ownerId });
     if (!business) {
       return res.status(403).json({
-        message: "Само собственици на бизнес могат да канят служители.",
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "Only business owners can invite staff.",
       });
     }
 
@@ -141,9 +150,9 @@ export const inviteStaff = async (req, res, next) => {
       );
 
       return res.status(201).json({
-        message:
-          "Служителят е поканен успешно. Изпратен е имейл с временна парола.",
-        staff: {
+        messageCode: "STAFF_INVITED",
+        message: "Staff member invited successfully. An email with a temporary password has been sent.",
+        data: {
           _id: newStaff._id,
           email: newStaff.email,
           firstName: newStaff.firstName,
@@ -168,6 +177,14 @@ export const inviteStaff = async (req, res, next) => {
       }
       throw error;
     }
+
+    // Add new staff to business chat channels (non-blocking)
+    addUserToBusinessChannels(newStaff._id, business._id, normalizedLocationIds).catch(err =>
+      console.error("Chat channel add-member error:", err)
+    );
+    ensureAdminSupportChannel(newStaff._id).catch(err =>
+      console.error("Admin support channel error:", err)
+    );
   } catch (error) {
     next(error);
   }
@@ -178,9 +195,10 @@ export const getStaffByIds = async (req, res, next) => {
     const { staffIds } = req.body;
 
     if (!staffIds || !Array.isArray(staffIds) || staffIds.length === 0) {
-      return res
-        .status(400)
-        .json({ message: "Невалиден списък със служители." });
+      return res.status(400).json({ 
+        errorCode: "INVALID_STAFF_LIST",
+        message: "Invalid list of staff members." 
+      });
     }
 
     const staff = await User.find({ _id: { $in: staffIds } }).select(
@@ -200,23 +218,26 @@ export const removeStaff = async (req, res, next) => {
 
     const business = await Business.findOne({ owner: ownerId });
     if (!business) {
-      return res
-        .status(403)
-        .json({ message: "Само собственици могат да премахват служители." });
+      return res.status(403).json({ 
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "Only owners can remove staff." 
+      });
     }
 
     const staff = await User.findById(staffId);
     if (!staff || String(staff.businessId) !== String(business._id)) {
-      return res
-        .status(404)
-        .json({ message: "Служителят не е намерен за този бизнес." });
+      return res.status(404).json({ 
+        errorCode: "STAFF_NOT_FOUND",
+        message: "Staff member not found for this business." 
+      });
     }
 
     // Delete the staff account completely
     await User.findByIdAndDelete(staffId);
 
     res.json({
-      message: "Служителят е премахнат и акаунтът е изтрит успешно.",
+      message: "Staff member removed and account deleted successfully.",
+      messageCode: "STAFF_REMOVED"
     });
   } catch (e) {
     next(e);
@@ -239,15 +260,17 @@ export const updateStaff = async (req, res, next) => {
 
     if (!business) {
       return res.status(403).json({
-        message: "Нямате права да редактирате служители.",
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "You do not have permission to edit staff.",
       });
     }
 
     const staff = await User.findById(staffId);
     if (!staff || String(staff.businessId) !== String(business._id)) {
-      return res
-        .status(404)
-        .json({ message: "Служителят не е намерен за този бизнес." });
+      return res.status(404).json({ 
+        errorCode: "STAFF_NOT_FOUND",
+        message: "Staff member not found for this business." 
+      });
     }
 
     let managerLocationIds = [];
@@ -261,9 +284,10 @@ export const updateStaff = async (req, res, next) => {
         manager.role !== "manager" ||
         String(manager.businessId || "") !== String(business._id)
       ) {
-        return res
-          .status(403)
-          .json({ message: "Нямате права да редактирате този служител." });
+        return res.status(403).json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "You do not have permission to edit this staff member." 
+        });
       }
 
       managerLocationIds = (manager.locationIds || []).map((id) => String(id));
@@ -279,9 +303,10 @@ export const updateStaff = async (req, res, next) => {
         staff.role === "business" ||
         staff.role === "admin"
       ) {
-        return res
-          .status(403)
-          .json({ message: "Нямате права да редактирате този служител." });
+        return res.status(403).json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "You do not have permission to edit this staff member." 
+        });
       }
     }
 
@@ -306,7 +331,8 @@ export const updateStaff = async (req, res, next) => {
         (role === "business" || role === "admin")
       ) {
         return res.status(403).json({
-          message: "Manager няма права да задава тази роля.",
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "Manager does not have permission to assign this role.",
         });
       }
       staff.role = role;
@@ -318,7 +344,8 @@ export const updateStaff = async (req, res, next) => {
         normalizedLocationIds.some((id) => !managerLocationIds.includes(id))
       ) {
         return res.status(403).json({
-          message: "Manager може да задава само собствените си локации.",
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "Manager can only assign their own locations.",
         });
       }
       staff.locationIds = normalizedLocationIds;
@@ -328,7 +355,10 @@ export const updateStaff = async (req, res, next) => {
     if (email && email !== staff.email) {
       const emailExists = await User.findOne({ email });
       if (emailExists) {
-        return res.status(409).json({ message: "Имейлът вече се използва." });
+        return res.status(409).json({ 
+          errorCode: "EMAIL_ALREADY_EXISTS",
+          message: "Email is already in use." 
+        });
       }
       staff.email = email;
     }
@@ -341,13 +371,17 @@ export const updateStaff = async (req, res, next) => {
     }
 
     res.json({
-      _id: staff._id,
-      firstName: staff.firstName,
-      lastName: staff.lastName,
-      email: staff.email,
-      phone: staff.phone,
-      role: staff.role,
-      locationIds: staff.locationIds,
+      message: "Staff member updated successfully.",
+      messageCode: "STAFF_UPDATED",
+      data: {
+        _id: staff._id,
+        firstName: staff.firstName,
+        lastName: staff.lastName,
+        email: staff.email,
+        phone: staff.phone,
+        role: staff.role,
+        locationIds: staff.locationIds,
+      }
     });
   } catch (e) {
     next(e);
@@ -361,29 +395,35 @@ export const updateStaffEmail = async (req, res, next) => {
     const { newEmail } = req.body;
 
     if (!newEmail) {
-      return res.status(400).json({ message: "Новият имейл е задължителен." });
+      return res.status(400).json({ 
+        errorCode: "MISSING_REQUIRED_FIELDS",
+        message: "New email is required." 
+      });
     }
 
     const business = await Business.findOne({ owner: ownerId });
     if (!business) {
       return res.status(403).json({
-        message: "Само собственици могат да променят имейли на служители.",
+        errorCode: "UNAUTHORIZED_ACTION",
+        message: "Only owners can change staff emails.",
       });
     }
 
     const staff = await User.findById(staffId);
     if (!staff || String(staff.businessId) !== String(business._id)) {
-      return res
-        .status(404)
-        .json({ message: "Служителят не е намерен за този бизнес." });
+      return res.status(404).json({ 
+        errorCode: "STAFF_NOT_FOUND",
+        message: "Staff member not found for this business." 
+      });
     }
 
     // Check if new email already exists
     const existingUser = await User.findOne({ email: newEmail });
     if (existingUser) {
-      return res
-        .status(409)
-        .json({ message: "Потребител с този имейл вече съществува." });
+      return res.status(409).json({ 
+        errorCode: "EMAIL_ALREADY_EXISTS",
+        message: "User with this email already exists." 
+      });
     }
 
     const oldEmail = staff.email;
@@ -423,9 +463,9 @@ export const updateStaffEmail = async (req, res, next) => {
     );
 
     res.status(200).json({
-      message:
-        "Имейлът е променен успешно. Изпратени са имейли на стария и новия адрес.",
-      staff: {
+      message: "Email changed successfully. Emails sent to old and new addresses.",
+      messageCode: "EMAIL_CHANGED",
+      data: {
         _id: newStaff._id,
         email: newStaff.email,
         firstName: newStaff.firstName,
@@ -445,18 +485,25 @@ export const rateStaff = async (req, res, next) => {
     const rawRating = Number(req.body?.rating);
 
     if (!mongoose.Types.ObjectId.isValid(staffId)) {
-      return res.status(400).json({ message: "Невалиден staff id." });
+      return res.status(400).json({ 
+        errorCode: "INVALID_STAFF_ID",
+        message: "Invalid staff id." 
+      });
     }
 
     if (!Number.isFinite(rawRating) || rawRating < 1 || rawRating > 5) {
-      return res
-        .status(400)
-        .json({ message: "Рейтингът трябва да е число между 1 и 5." });
+      return res.status(400).json({ 
+        errorCode: "INVALID_RATING",
+        message: "Rating must be a number between 1 and 5." 
+      });
     }
 
     const staff = await User.findById(staffId);
     if (!staff) {
-      return res.status(404).json({ message: "Служителят не е намерен." });
+      return res.status(404).json({ 
+        errorCode: "STAFF_NOT_FOUND",
+        message: "Staff member not found." 
+      });
     }
 
     const currentTotal = Number(staff.ratingTotal || 0);
@@ -469,9 +516,13 @@ export const rateStaff = async (req, res, next) => {
     await staff.save();
 
     res.json({
-      _id: staff._id,
-      rating: staff.rating,
-      ratingCount: staff.ratingCount,
+      message: "Rating submitted successfully.",
+      messageCode: "RATING_SUBMITTED",
+      data: {
+        _id: staff._id,
+        rating: staff.rating,
+        ratingCount: staff.ratingCount,
+      }
     });
   } catch (e) {
     next(e);
@@ -513,10 +564,11 @@ async function handleExistingStaffUser(user, business, locationIds, res) {
       }
 
       return res.status(200).json({
+        messageCode: "STAFF_ADDED_TO_LOCATION",
         message: isOwner
-          ? "Бизнес собственикът беше добавен успешно към локацията."
-          : "Служителят беше добавен към новата локация.",
-        staff: {
+          ? "Business owner successfully added to location."
+          : "Staff successfully added to new location.",
+        data: {
           _id: user._id,
           email: user.email,
           firstName: user.firstName,
@@ -529,9 +581,10 @@ async function handleExistingStaffUser(user, business, locationIds, res) {
     }
 
     return res.status(409).json({
+      errorCode: isOwner ? "OWNER_ALREADY_ADDED" : "STAFF_ALREADY_ADDED",
       message: isOwner
-        ? "Вече сте добавени към тази локация."
-        : "Този служител вече е добавен към тази локация.",
+        ? "You are already added to this location."
+        : "This staff member is already assigned to this location.",
     });
   }
 
@@ -550,8 +603,9 @@ async function handleExistingStaffUser(user, business, locationIds, res) {
     }
 
     return res.status(200).json({
-      message: "Потребителят беше добавен като служител към вашия бизнес.",
-      staff: {
+      messageCode: "STAFF_ADDED_TO_BUSINESS",
+      message: "User successfully added as staff to your business.",
+      data: {
         _id: user._id,
         email: user.email,
         firstName: user.firstName,
@@ -565,8 +619,8 @@ async function handleExistingStaffUser(user, business, locationIds, res) {
 
   // Case 3: User belongs to ANOTHER business
   return res.status(409).json({
-    message:
-      "Този имейл е свързан с друг бизнес профил и не може да бъде добавен.",
+    errorCode: "EMAIL_LINKED_TO_OTHER_BUSINESS",
+    message: `This email ${user.email} is linked to another business profile and cannot be added.`,
   });
 }
 

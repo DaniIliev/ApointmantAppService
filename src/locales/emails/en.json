@@ -1,0 +1,78 @@
+{
+  "common": {
+    "hello": "Hello",
+    "respectfully": "Respectfully",
+    "team": "The Team of",
+    "view_profile": "View your profile",
+    "login_to_profile": "Log in to my profile",
+    "cancel_appointment": "Cancel appointment",
+    "book_new_appointment": "Book new appointment",
+    "details_title": "Details of your booked appointment",
+    "service": "Service",
+    "date": "Date",
+    "time": "Time",
+    "business": "Business",
+    "login_credentials": "Your login details",
+    "email": "Email",
+    "temp_password": "Temporary password",
+    "change_password_hint": "Please change your password at your earliest convenience after logging in."
+  },
+  "confirmation": {
+    "subject": "Appointment Confirmation: {{serviceName}} with {{businessName}}",
+    "message": "Your appointment has been successfully confirmed with <strong>{{businessName}}</strong>."
+  },
+  "cancellation": {
+    "subject": "Appointment Cancelled - {{businessName}}",
+    "message": "Your appointment has been cancelled.",
+    "cancelled_details": "Cancelled appointment",
+    "book_new": "If you wish to book a new appointment, please visit our portal."
+  },
+  "invitation": {
+    "subject": "Invitation to join the team!",
+    "message": "You have been invited to join the team at {{businessName}}."
+  },
+  "otp": {
+    "subject": "Your One-Time Password (AppointDI®)",
+    "message": "Use the following code for one-time access to your profile:",
+    "validity": "The code is valid for 10 minutes. If you did not request this code, please ignore this email."
+  },
+  "payment": {
+    "authorized": {
+      "subject": "Payment – amount authorized for {{serviceName}}",
+      "message": "A pre-authorization of the amount for the service <strong>{{serviceName}}</strong> has been performed.",
+      "details": "The amount <strong>{{amount}} {{currency}}</strong> is temporarily blocked on your card.",
+      "hint": "Once the staff approves the appointment, the amount will be captured. If the request is denied, the blocked limit will be released automatically."
+    },
+    "captured": {
+      "subject": "Payment successful – {{serviceName}}",
+      "message": "The payment for the service <strong>{{serviceName}}</strong> was successfully processed.",
+      "amount_label": "Amount",
+      "thanks": "Thank you for your trust!"
+    },
+    "refunded": {
+      "subject": "Refund processed – {{serviceName}}",
+      "message": "The amount for the service <strong>{{serviceName}}</strong> has been refunded.",
+      "hint": "Please note that it may take a few days for your bank statement to reflect the change."
+    }
+  },
+  "staff": {
+    "email_changed_new": {
+      "subject": "Your Email Has Been Changed - New Login Details",
+      "message": "Your email address in the <strong>{{businessName}}</strong> system has been changed.",
+      "credentials_title": "New login details"
+    },
+    "email_changed_old": {
+      "subject": "Your Account Has Been Deactivated",
+      "message": "Your email address in the <strong>{{businessName}}</strong> system has been changed to <strong>{{newEmail}}</strong>.",
+      "security_note": "The account associated with this email address (<strong>{{oldEmail}}</strong>) is no longer active. If you did not make this change, please contact your manager immediately."
+    }
+  },
+  "subscription": {
+    "expiration_warning": {
+      "subject": "Your plan {{planName}} will expire soon!",
+      "message": "This is a reminder that your subscription plan <strong>{{planName}}</strong> for business <strong>{{businessName}}</strong> is expiring.",
+      "date_label": "Expiration date",
+      "hint": "To continue using our services without interruption, please renew your subscription before this date. If you have any questions, feel free to contact us."
+    }
+  }
+}

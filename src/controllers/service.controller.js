@@ -14,6 +14,7 @@ export const createService = async (req, res, next) => {
       category,
       paymentOption,
       locationId,
+      locationIds,
       isGroup,
       capacity,
     } = req.body;
@@ -49,7 +50,10 @@ export const createService = async (req, res, next) => {
     }
 
     if (!businessId) {
-      return res.status(404).json({ message: "Бизнесът не е намерен." });
+      return res.status(404).json({ 
+        errorCode: "BUSINESS_NOT_FOUND",
+        message: "Business not found." 
+      });
     }
 
     const service = await Service.create({
@@ -63,12 +67,16 @@ export const createService = async (req, res, next) => {
       imageUrl,
       staffMembers: parsedStaffIds,
       paymentOption: paymentOption || "cash",
-      locationId,
+      locationIds: locationIds || (locationId ? [locationId] : []),
       isGroup: isGroup === "true" || isGroup === true,
       capacity: Number(capacity) || 1,
     });
 
-    res.status(201).json(service);
+    res.status(201).json({
+      message: "Service created successfully.",
+      messageCode: "SERVICE_CREATED",
+      data: service
+    });
   } catch (e) {
     next(e);
   }
@@ -83,7 +91,7 @@ export const listServices = async (req, res, next) => {
     console.log("headerLocationId", headerLocationId);
     console.log("effectiveLocationId", effectiveLocationId);
     const filter = { business: businessId };
-    if (effectiveLocationId) filter.locationId = effectiveLocationId;
+    if (effectiveLocationId) filter.locationIds = effectiveLocationId;
     const services = await Service.find(filter)
       .populate({
         path: "staffMembers",
@@ -109,13 +117,17 @@ export const updateService = async (req, res, next) => {
       staffMembers,
       paymentOption,
       locationId,
+      locationIds,
       isGroup,
       capacity,
     } = req.body;
     const imageUrl = req.file?.path || req.body.imageUrl;
     const serviceToUpdate = await Service.findById(serviceId);
     if (!serviceToUpdate) {
-      return res.status(404).json({ message: "Услугата не е намерена." });
+      return res.status(404).json({ 
+        errorCode: "SERVICE_NOT_FOUND",
+        message: "Service not found." 
+      });
     }
 
     // Намираме бизнеса по businessId на потребителя
@@ -126,7 +138,10 @@ export const updateService = async (req, res, next) => {
     ) {
       return res
         .status(403)
-        .json({ message: "Нямате права да редактирате тази услуга." });
+        .json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "You do not have permission to edit this service." 
+        });
     }
 
     serviceToUpdate.name = name ? name.trim() : serviceToUpdate.name;
@@ -144,8 +159,8 @@ export const updateService = async (req, res, next) => {
     if (capacity !== undefined) {
       serviceToUpdate.capacity = Number(capacity) || 1;
     }
-    if (locationId !== undefined) {
-      serviceToUpdate.locationId = locationId || null;
+    if (locationIds !== undefined || locationId !== undefined) {
+      serviceToUpdate.locationIds = locationIds || (locationId ? [locationId] : []);
     }
 
     if (staffMembers) {
@@ -179,7 +194,11 @@ export const updateService = async (req, res, next) => {
 
     await serviceToUpdate.save();
 
-    res.json(serviceToUpdate);
+    res.json({
+      message: "Service updated successfully.",
+      messageCode: "SERVICE_UPDATED",
+      data: serviceToUpdate
+    });
   } catch (e) {
     next(e);
   }
@@ -191,7 +210,10 @@ export const deleteService = async (req, res, next) => {
 
     const serviceToDelete = await Service.findById(serviceId);
     if (!serviceToDelete) {
-      return res.status(404).json({ message: "Услугата не е намерена." });
+      return res.status(404).json({ 
+        errorCode: "SERVICE_NOT_FOUND",
+        message: "Service not found." 
+      });
     }
     // Намираме бизнеса по businessId на потребителя
     const business = await Business.findById(req.user.businessId);
@@ -201,11 +223,17 @@ export const deleteService = async (req, res, next) => {
     ) {
       return res
         .status(403)
-        .json({ message: "Нямате права да изтривате тази услуга." });
+        .json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "You do not have permission to delete this service." 
+        });
     }
     await Service.deleteOne({ _id: serviceId });
 
-    res.json({ message: "Услугата беше успешно изтрита." });
+    res.json({ 
+      message: "Service deleted successfully.",
+      messageCode: "SERVICE_DELETED"
+    });
   } catch (e) {
     next(e);
   }
@@ -219,14 +247,20 @@ export const assignStaffToService = async (req, res, next) => {
     const serviceToUpdate =
       await Service.findById(serviceId).populate("business");
     if (!serviceToUpdate) {
-      return res.status(404).json({ message: "Услугата не е намерена." });
+      return res.status(404).json({ 
+        errorCode: "SERVICE_NOT_FOUND",
+        message: "Service not found." 
+      });
     }
 
     // Проверяваме дали businessId на услугата съвпада с businessId на потребителя
     if (String(serviceToUpdate.business._id) !== req.user.businessId) {
       return res
         .status(403)
-        .json({ message: "Нямате права да редактирате тази услуга." });
+        .json({ 
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "You do not have permission to edit this service." 
+        });
     }
 
     // Проверка дали всички staffIds са валидни служители на този бизнес
@@ -242,15 +276,19 @@ export const assignStaffToService = async (req, res, next) => {
 
     if (!areAllStaffValid) {
       return res.status(400).json({
-        message:
-          "Едно или повече ID-та на служители са невалидни за този бизнес.",
+        errorCode: "INVALID_STAFF_IDS",
+        message: "One or more staff IDs are invalid for this business."
       });
     }
 
     serviceToUpdate.staffMembers = staffIds;
     await serviceToUpdate.save();
 
-    res.json(serviceToUpdate);
+    res.json({
+      message: "Staff assigned successfully.",
+      messageCode: "STAFF_ASSIGNED_TO_SERVICE",
+      data: serviceToUpdate
+    });
   } catch (e) {
     next(e);
   }
@@ -266,7 +304,10 @@ export const listStaffForService = async (req, res, next) => {
     });
 
     if (!service) {
-      return res.status(404).json({ message: "Услугата не е намерена." });
+      return res.status(404).json({ 
+        errorCode: "SERVICE_NOT_FOUND",
+        message: "Service not found." 
+      });
     }
 
     res.json(service.staffMembers);

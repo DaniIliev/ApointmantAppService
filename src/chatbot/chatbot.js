@@ -1,79 +1,271 @@
-// chatbot/chatbot.js
-import natural from "natural";
-import { TRAINING_DATA, Intents } from "./intents.js";
+// chatbot/chatbot.js — Gemini AI-powered chatbot with full database context
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import Service from "../models/Service.js";
 import User from "../models/User.js";
+import Location from "../models/Location.js";
+import Business from "../models/Business.js";
 import Appointment from "../models/Appointment.js";
-import moment from "moment";
+import StaffSchedule from "../models/StaffSchedule.js";
 import mongoose from "mongoose";
+import moment from "moment-timezone";
 import { getAvailableSlots } from "../utils/AppointmentUtilities.js";
+
+const APP_TIMEZONE = "Europe/Sofia";
 
 class Chatbot {
   constructor() {
-    this.classifier = null;
-    this.conversationState = {};
-    this.lastActivity = {};
+    this.conversations = {}; // userId -> { history: [], lastActivity: Date }
     this.rateCounters = {};
-    this.initialized = false;
-    // Configurable runtime parameters
-    this.TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes inactivity timeout
-    this.RATE_LIMIT_MAX = 10; // Max messages per minute per user
-    this.RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
+    this.TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+    this.RATE_LIMIT_MAX = 12;
+    this.RATE_LIMIT_WINDOW_MS = 60 * 1000;
+    this.model = null;
   }
 
-  async initialize() {
-    if (this.initialized) {
-      console.log("Chatbot model already initialized.");
-      return;
+  _getGenAI() {
+    if (this.genAI) return this.genAI;
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not set in environment variables.");
     }
-    console.log("Initializing chatbot model...");
-
-    this.classifier = new natural.BayesClassifier();
-
-    let docsCount = 0;
-    for (const intent in TRAINING_DATA) {
-      TRAINING_DATA[intent].forEach((text) => {
-        this.classifier.addDocument(text.toLowerCase(), intent);
-        docsCount++;
-      });
-    }
-    console.log("📄 Documents added:", docsCount);
-    this.classifier.train();
-    this.initialized = true;
-    console.log("Chatbot model successfully trained and ready!");
+    this.genAI = new GoogleGenerativeAI(apiKey);
+    return this.genAI;
   }
 
-  async processMessage(message, userId, businessId) {
-    try {
-      console.log(
-        "🔍 Initialized:",
-        this.initialized,
-        "Classifier:",
-        !!this.classifier
+  _createModelWithSystemPrompt(systemPrompt) {
+    const genAI = this._getGenAI();
+    return genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+    });
+  }
+
+  // ─── Gather full database context for a business ──────────────────
+  async _gatherContext(businessId, locationId) {
+    const [business, locations, services] = await Promise.all([
+      Business.findById(businessId).lean(),
+      Location.find({ businessId }).lean(),
+      Service.find({ business: businessId }).lean(),
+    ]);
+
+    if (!business) return null;
+
+    // Collect all unique staff IDs from services
+    const allStaffIds = new Set();
+    services.forEach((svc) => {
+      if (Array.isArray(svc.staffMembers)) {
+        svc.staffMembers.forEach((id) => {
+          if (id && mongoose.Types.ObjectId.isValid(id)) {
+            allStaffIds.add(String(id));
+          }
+        });
+      }
+    });
+
+    const staffMembers = await User.find({
+      _id: { $in: Array.from(allStaffIds) },
+    }).lean();
+
+    const staffMap = {};
+    staffMembers.forEach((s) => {
+      staffMap[String(s._id)] = {
+        id: String(s._id),
+        firstName: s.firstName || "",
+        lastName: s.lastName || "",
+        role: s.role || "staff",
+      };
+    });
+
+    // Format locations
+    const dayLabels = {
+      monday: "Понеделник/Monday",
+      tuesday: "Вторник/Tuesday",
+      wednesday: "Сряда/Wednesday",
+      thursday: "Четвъртък/Thursday",
+      friday: "Петък/Friday",
+      saturday: "Събота/Saturday",
+      sunday: "Неделя/Sunday",
+    };
+
+    const formattedLocations = locations.map((loc) => {
+      const hours = {};
+      if (loc.weeklyWorkingHours) {
+        for (const [day, label] of Object.entries(dayLabels)) {
+          const wh = loc.weeklyWorkingHours[day];
+          if (wh && !wh.isDayOff && wh.workTime?.start && wh.workTime?.end) {
+            hours[label] = `${wh.workTime.start} - ${wh.workTime.end}`;
+          } else {
+            hours[label] = "Почивен ден / Day Off";
+          }
+        }
+      }
+      return {
+        id: String(loc._id),
+        name: loc.name,
+        address: `${loc.address}, ${loc.city}`,
+        phone: loc.phone || "N/A",
+        email: loc.email || "N/A",
+        workingHours: hours,
+      };
+    });
+
+    // Format services
+    const formattedServices = services.map((svc) => ({
+      id: String(svc._id),
+      name: svc.name,
+      description: svc.description || "",
+      duration: svc.duration,
+      price: svc.price,
+      category: svc.category,
+      paymentOption: svc.paymentOption,
+      isGroup: svc.isGroup || false,
+      capacity: svc.capacity || 1,
+      staffMembers: (svc.staffMembers || [])
+        .map((id) => staffMap[String(id)])
+        .filter(Boolean)
+        .map((s) => `${s.firstName} ${s.lastName} (ID: ${s.id})`),
+      locationIds: (svc.locationIds || []).map(String),
+    }));
+
+    // If a specific location is provided, get today's availability for staff at that location
+    let availabilityInfo = "";
+    if (locationId) {
+      const targetLocation = locations.find(
+        (l) => String(l._id) === String(locationId)
       );
+      if (targetLocation) {
+        const locationServices = services.filter(
+          (svc) =>
+            Array.isArray(svc.locationIds) &&
+            svc.locationIds.some((lid) => String(lid) === String(locationId))
+        );
+        // Get unique staff for this location
+        const locationStaffIds = new Set();
+        locationServices.forEach((svc) => {
+          (svc.staffMembers || []).forEach((id) => {
+            if (id) locationStaffIds.add(String(id));
+          });
+        });
 
-      if (!this.initialized) {
-        console.log("🤖 Initializing inside processMessage...");
-        await this.initialize();
+        const today = moment.tz(APP_TIMEZONE).format("YYYY-MM-DD");
+        const availParts = [];
+        for (const staffId of locationStaffIds) {
+          const staff = staffMap[staffId];
+          if (!staff) continue;
+          // Find shortest service duration for this staff
+          const staffServices = locationServices.filter(
+            (svc) =>
+              Array.isArray(svc.staffMembers) &&
+              svc.staffMembers.some((id) => String(id) === staffId)
+          );
+          const minDuration =
+            staffServices.length > 0
+              ? Math.min(...staffServices.map((s) => s.duration))
+              : 30;
+          try {
+            const { slots } = await getAvailableSlots(
+              staffId,
+              today,
+              minDuration,
+              locationId
+            );
+            const slotsToShow = (slots || []).slice(0, 8);
+            if (slotsToShow.length > 0) {
+              availParts.push(
+                `  ${staff.firstName} ${staff.lastName}: свободни часове днес (${today}): ${slotsToShow.map((s) => s.startTime).join(", ")}${slots.length > 8 ? ` и още ${slots.length - 8}` : ""}`
+              );
+            } else {
+              availParts.push(
+                `  ${staff.firstName} ${staff.lastName}: няма свободни часове днес (${today})`
+              );
+            }
+          } catch (e) {
+            availParts.push(
+              `  ${staff.firstName} ${staff.lastName}: не може да се провери наличността`
+            );
+          }
+        }
+        if (availParts.length > 0) {
+          availabilityInfo = `\n\nДнешна наличност за локация "${targetLocation.name}" (${today}):\n${availParts.join("\n")}`;
+        }
       }
+    }
 
-      if (!this.conversationState[userId]) {
-        this.conversationState[userId] = {
-          intent: null,
-          service: null,
-          staff: null,
-          date: null,
-          time: null,
-          clientName: null,
-          clientEmail: null,
-          clientPhone: null,
-        };
-      }
+    return {
+      business: {
+        name: business.businessName,
+        category: business.category || "",
+        aboutUs: business.aboutUs || "",
+      },
+      locations: formattedLocations,
+      services: formattedServices,
+      staffList: Object.values(staffMap),
+      availabilityInfo,
+      currentDateTime: moment.tz(APP_TIMEZONE).format("YYYY-MM-DD HH:mm (dddd)"),
+    };
+  }
 
-      const currentState = this.conversationState[userId];
-      const lowerCaseMessage = (message || "").toLowerCase();
+  // ─── Build the system prompt ──────────────────────────────────────
+  _buildSystemPrompt(context, locationId) {
+    const locationNote = locationId
+      ? `\nThe user is currently on the page for location ID: ${locationId}. Prioritize information about this location.`
+      : "";
 
-      // -------- Rate limiting --------
+    return `You are a professional, friendly virtual AI assistant for the business "${context.business.name}".
+Your role is to help customers with questions about services, staff, locations, working hours, availability, and booking appointments.
+
+CRITICAL RULES:
+1. ALWAYS respond in the SAME LANGUAGE the user writes in. If they write in Bulgarian, respond in Bulgarian. If they write in English, respond in English. If they mix languages, prefer the dominant one.
+2. Use ONLY the data provided below to answer questions. Do NOT invent information.
+3. Be concise but helpful. Use bullet points and formatting when listing multiple items.
+4. When a user wants to book an appointment, guide them step by step: ask for service → staff → date → time → client details (name, email, phone). Then confirm.
+5. When you have ALL booking details confirmed by the user, output a special JSON block at the END of your message (after your human-readable confirmation) in this exact format:
+\`\`\`json
+{"action":"book","service":"<service_id>","staff":"<staff_id>","date":"YYYY-MM-DD","time":"HH:mm","clientName":"<name>","clientEmail":"<email>","clientPhone":"<phone>"}
+\`\`\`
+6. For availability queries, if you need to check a specific date/staff that isn't in the pre-loaded data, tell the user what you know and suggest they ask about a specific date.
+7. Today's date and time: ${context.currentDateTime}
+8. Use emojis sparingly to make responses feel warm (✅, 📅, ⏰, 💇, 📍 etc).
+9. All prices for services are in Euro (€). ALWAYS display prices with the € symbol (e.g., "20 €").
+${locationNote}
+
+═══ BUSINESS DATA ═══
+
+📍 LOCATIONS:
+${JSON.stringify(context.locations, null, 2)}
+
+💇 SERVICES:
+${JSON.stringify(context.services, null, 2)}
+
+👥 STAFF:
+${JSON.stringify(context.staffList, null, 2)}
+${context.availabilityInfo}
+
+═══ END OF DATA ═══
+
+Remember: Be helpful, accurate, and respond in the user's language.`;
+  }
+
+  // ─── Fetch availability for a specific staff + date on demand ─────
+  async _getAvailabilityForStaffDate(staffId, date, serviceDuration, locationId) {
+    try {
+      const { slots } = await getAvailableSlots(
+        staffId,
+        date,
+        serviceDuration,
+        locationId
+      );
+      return slots || [];
+    } catch (e) {
+      console.error("Availability check error:", e);
+      return [];
+    }
+  }
+
+  // ─── Process message ──────────────────────────────────────────────
+  async processMessage(message, userId, businessId, locationId = null) {
+    try {
+      // Rate limiting
       const nowTs = Date.now();
       if (!this.rateCounters[userId]) {
         this.rateCounters[userId] = { count: 0, windowStart: nowTs };
@@ -85,654 +277,524 @@ class Chatbot {
       }
       rc.count++;
       if (rc.count > this.RATE_LIMIT_MAX) {
-        console.warn("⏱️ Rate limit exceeded for user", userId);
-        return "Моля, изчакайте малко преди да изпратите още съобщения.";
+        return "⏳ Моля, изчакайте малко преди да изпратите още съобщения. / Please wait before sending more messages.";
       }
 
-      // -------- Inactivity timeout --------
-      const last = this.lastActivity[userId];
-      if (last && nowTs - last > this.TIMEOUT_MS) {
-        console.log(
-          "🕒 Inactivity timeout; resetting conversation for",
-          userId
-        );
-        this.conversationState[userId] = {
-          intent: null,
-          service: null,
-          staff: null,
-          date: null,
-          time: null,
+      // Check inactivity timeout
+      const conv = this.conversations[userId];
+      if (conv && nowTs - conv.lastActivity > this.TIMEOUT_MS) {
+        delete this.conversations[userId];
+      }
+
+      // Initialize or get conversation
+      if (!this.conversations[userId]) {
+        this.conversations[userId] = {
+          history: [],
+          lastActivity: nowTs,
+          businessId,
+          locationId,
         };
       }
-      this.lastActivity[userId] = nowTs;
+      const conversation = this.conversations[userId];
+      conversation.lastActivity = nowTs;
 
-      // -------- Date parsing helper --------
-      const parseRequestedDate = () => {
-        if (/(днес)/i.test(lowerCaseMessage)) {
-          return moment().format("YYYY-MM-DD");
-        }
-        if (/(утре)/i.test(lowerCaseMessage)) {
-          return moment().add(1, "day").format("YYYY-MM-DD");
-        }
-        const dateMatch = lowerCaseMessage.match(
-          /(\d{1,2}[\.\/]\d{1,2}(?:[\.\/]\d{2,4})?)/
-        );
-        if (dateMatch) {
-          const raw = dateMatch[1];
-          const parts = raw.split(/[\.\/]/).map((p) => p.trim());
-          let day = parts[0];
-          let month = parts[1];
-          let year = parts[2];
-          if (!year) year = moment().format("YYYY");
-          if (year.length === 2) year = "20" + year;
-          const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(
-            2,
-            "0"
-          )}`;
-          if (moment(iso, "YYYY-MM-DD", true).isValid()) return iso;
-        }
-        return null;
-      };
-      const requestedDate = parseRequestedDate();
-
-      // Early greeting regex (covers punctuation / trailing spaces)
-      const greetingRegex = /^(здравей|здравейте|здрасти|привет)[!.,\s]*$/i;
-      if (greetingRegex.test(message.trim())) {
-        this.conversationState[userId] = { intent: Intents.GREETING };
-        console.log("🙋 Early regex greeting matched for user:", userId);
-        return "Здравейте! Аз съм вашият виртуален асистент. С какво мога да ви помогна? Може да кажете 'Искам да запазя час' или 'Кои са свободните часове?'";
-      }
-      // Early availability regex (improved to catch 'какви свободни часове има на <date>')
-      const availabilityRegex =
-        /(кои|какви|има ли|покажи).*(свободн|наличн).*(час|часове)|свободни часове|налични часове|какви\s+свободни\s+часове\s+има\s+на\s+\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4}/i;
-      if (availabilityRegex.test(lowerCaseMessage)) {
-        currentState.intent = Intents.CHECK_AVAILABILITY;
-        console.log("🕒 Early regex availability matched for user:", userId);
-        // Fall through so classifier probabilities logged; override intent later
-      }
-      // Early booking regex to catch variants before classifier
-      const bookingRegex =
-        /(искам|може ли|мога ли).*(да)?\s*(запазя|запиша|резервирам)\s*час/i;
-      if (bookingRegex.test(lowerCaseMessage)) {
-        currentState.intent = Intents.BOOK_APPOINTMENT;
-        console.log("📌 Early regex booking intent matched for user:", userId);
-        // Downstream logic will pick this up via currentState.intent
-      }
-      let intent = Intents.UNKNOWN;
-      try {
-        intent = this.classifier.classify(lowerCaseMessage);
-      } catch (classErr) {
-        console.error("Classifier error, defaulting to UNKNOWN:", classErr);
-        intent = Intents.UNKNOWN;
-      }
-      // If regex set a desired intent, override classifier outcome
-      if (
-        currentState.intent === Intents.CHECK_AVAILABILITY &&
-        intent !== Intents.CHECK_AVAILABILITY
-      ) {
-        console.log(
-          "🔁 Overriding classifier intent to CHECK_AVAILABILITY due to regex match."
-        );
-        intent = Intents.CHECK_AVAILABILITY;
+      // Gather database context
+      const context = await this._gatherContext(businessId, locationId);
+      if (!context) {
+        return "❌ Не мога да намеря информация за този бизнес. / Cannot find business information.";
       }
 
-      // Log classification probabilities for debugging
-      if (this.classifier && this.classifier.getClassifications) {
-        try {
-          const probs = this.classifier.getClassifications(lowerCaseMessage);
-          console.log("📊 Intent probabilities:", probs);
-        } catch (probErr) {
-          console.warn("Could not get intent probabilities:", probErr);
-        }
-      }
-      console.log(
-        "🤖 ProcessMessage inputs - UserID:",
-        userId,
-        "BusinessID:",
-        businessId
+      // Check if user is asking about availability for a specific date/staff
+      // Parse date from message for extra context
+      const lowerMsg = message.toLowerCase();
+      let extraAvailability = "";
+
+      // Try to detect date requests
+      const datePatterns = [
+        { regex: /\b(днес|today)\b/i, offset: 0 },
+        { regex: /\b(утре|tomorrow)\b/i, offset: 1 },
+        { regex: /\b(вдругиден)\b/i, offset: 2 },
+      ];
+      const explicitDateMatch = lowerMsg.match(
+        /(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?/
       );
-      console.log("📩 Incoming message:", message);
-      console.log("🧠 Classified intent:", intent);
-      console.log("📌 Current state for user:", currentState);
 
-      // Reset conversation
-      if (
-        ["отказ", "отмени", "започни отначало", "спри", "не"].includes(
-          lowerCaseMessage.trim()
-        )
-      ) {
-        this.conversationState[userId] = {};
-        console.log("❌ Conversation reset for user:", userId);
-        return "Разговорът е прекратен. Ако искате да запазите час, просто кажете 'искам да запазя час'.";
-      }
-
-      // Greeting
-      if (intent === Intents.GREETING) {
-        this.conversationState[userId] = {
-          ...this.conversationState[userId],
-          intent: Intents.GREETING,
-        };
-        console.log("🙋 Greeting detected for user:", userId);
-        return "Здравейте! Аз съм вашият виртуален асистент. С какво мога да ви помогна? Мога да ви помогна със запазване на час.";
-      }
-
-      // Booking flow
-      if (
-        intent === Intents.BOOK_APPOINTMENT ||
-        currentState.intent === Intents.BOOK_APPOINTMENT
-      ) {
-        currentState.intent = Intents.BOOK_APPOINTMENT;
-        console.log("📅 Booking flow started for user:", userId);
-
-        // Step 1: Ask for service
-        if (!currentState.service) {
-          let services = [];
-          try {
-            services = await Service.find({ business: businessId }).lean();
-            console.log("Services fetched count:", services.length);
-          } catch (svcErr) {
-            console.error("Service fetch error:", svcErr);
-            return "Възникна грешка при зареждане на услугите. Опитайте отново.";
-          }
-
-          if (!services || services.length === 0) {
-            this.conversationState[userId] = {};
-            return "За съжаление, няма налични услуги в момента.";
-          }
-
-          const normalizedMsg = lowerCaseMessage.replace(/\s+/g, " ").trim();
-          const foundService = services.find((s) => {
-            try {
-              const rawName = String(s.name || "");
-              const name = rawName.toLowerCase().trim(); // remove trailing spaces
-              if (!name) return false;
-              // Exact word boundary match
-              const wordBoundaryMatch = new RegExp(
-                `(^|[^а-яa-z0-9])${name}($|[^а-яa-z0-9])`,
-                "i"
-              ).test(normalizedMsg);
-              // Explicit selection verbs before name (избирам <name>)
-              const selectionPattern = new RegExp(
-                `(?:избирам|вземам|избера|искам)\\s+${name}`,
-                "i"
-              ).test(normalizedMsg);
-              // Simple substring fallback
-              const substring = normalizedMsg.includes(name);
-              return wordBoundaryMatch || selectionPattern || substring;
-            } catch (e) {
-              return false;
-            }
-          });
-
-          if (foundService) {
-            currentState.service = foundService;
-            const serviceStaffs = Array.isArray(foundService.staffMembers)
-              ? foundService.staffMembers
-              : [];
-            if (serviceStaffs.length === 0) {
-              this.conversationState[userId] = {};
-              return `За услугата "${foundService.name}" няма налични служители в момента. Моля, изберете друга услуга.`;
-            }
-            const staffIds = serviceStaffs
-              .filter((id) => mongoose.Types.ObjectId.isValid(id));
-            if (staffIds.length === 0) {
-              this.conversationState[userId] = {};
-              return `За услугата "${foundService.name}" няма валидни служители.`;
-            }
-            const staffForService = await User.find({
-              _id: { $in: staffIds },
-            }).lean();
-            if (!staffForService || staffForService.length === 0) {
-              this.conversationState[userId] = {};
-              return `За услугата "${foundService.name}" няма налични служители в момента.`;
-            }
-
-            // If user provided a date, show available slots for all staff for that date
-            if (requestedDate) {
-              let slotsMsg = `Свободни часове за услуга "${
-                foundService.name
-              }" на ${moment(requestedDate).format("DD.MM.YYYY")}\n`;
-              let anySlots = false;
-              for (const staff of staffForService) {
-                try {
-                  const avail = await getAvailableSlots(
-                    staff._id,
-                    requestedDate,
-                    foundService.duration
-                  );
-                  const slots = avail && avail.slots ? avail.slots : [];
-                  if (slots.length > 0) {
-                    anySlots = true;
-                    const slotList = slots.map((s) => s.startTime).join(", ");
-                    slotsMsg += `• ${staff.firstName} ${staff.lastName}: ${slotList}\n`;
-                  } else {
-                    slotsMsg += `• ${staff.firstName} ${staff.lastName}: няма свободни часове\n`;
-                  }
-                } catch (e) {
-                  slotsMsg += `• ${staff.firstName} ${staff.lastName}: грешка при проверка\n`;
-                }
-              }
-              slotsMsg += anySlots
-                ? "Моля, изберете служител или друг ден."
-                : "Няма свободни часове за тази дата. Опитайте друга дата.";
-              return slotsMsg;
-            }
-
-            const staffNames = staffForService
-              .map((s) => `${s.firstName} ${s.lastName}`)
-              .join(", ");
-            return `Отлично! Избрахте услуга "${foundService.name}" (${foundService.duration} мин, ${foundService.price} лв). Налични служители: ${staffNames}. При кого бихте искали да запазите час?`;
-          } else {
-            const serviceList = services
-              .map((s) => `• ${s.name} (${s.duration} мин, ${s.price} лв)`)
-              .join("\n");
-            return `Моля, изберете услуга от следните:\n${serviceList}`;
-          }
+      let requestedDate = null;
+      for (const dp of datePatterns) {
+        if (dp.regex.test(lowerMsg)) {
+          requestedDate = moment
+            .tz(APP_TIMEZONE)
+            .add(dp.offset, "days")
+            .format("YYYY-MM-DD");
+          break;
         }
+      }
+      if (!requestedDate && explicitDateMatch) {
+        let [, day, month, year] = explicitDateMatch;
+        if (!year) year = moment.tz(APP_TIMEZONE).format("YYYY");
+        if (year.length === 2) year = "20" + year;
+        const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+        if (moment(iso, "YYYY-MM-DD", true).isValid()) {
+          requestedDate = iso;
+        }
+      }
 
-        // Step 2: Ask for staff
-        if (currentState.service && !currentState.staff) {
-          const serviceStaffs2 = Array.isArray(currentState.service.staffMembers)
-            ? currentState.service.staffMembers
-            : [];
-          const staffIds = serviceStaffs2
-            .filter((id) => mongoose.Types.ObjectId.isValid(id));
-          if (staffIds.length === 0) {
-            this.conversationState[userId] = {};
-            return "За избраната услуга няма валидни служители. Опитайте друга услуга.";
-          }
-          const staffForService = await User.find({
-            _id: { $in: staffIds },
-          }).lean();
-
-          const foundStaff = staffForService.find(
-            (s) =>
-              lowerCaseMessage.includes(s.firstName.toLowerCase()) ||
-              lowerCaseMessage.includes(s.lastName.toLowerCase())
+      // If we detect a date and staff name in the message, pre-fetch availability
+      if (requestedDate) {
+        const staffToCheck = context.staffList.filter((s) => {
+          const fullName = `${s.firstName} ${s.lastName}`.toLowerCase();
+          return (
+            lowerMsg.includes(s.firstName.toLowerCase()) ||
+            lowerMsg.includes(s.lastName.toLowerCase()) ||
+            lowerMsg.includes(fullName)
           );
+        });
 
-          if (foundStaff) {
-            currentState.staff = foundStaff;
-
-            let slots = [];
-            try {
-              const dateForSearch =
-                requestedDate || moment().format("YYYY-MM-DD");
-              const avail = await getAvailableSlots(
-                foundStaff._id,
-                dateForSearch,
-                currentState.service.duration
-              );
-              slots = avail.slots || [];
-            } catch (slotErr) {
-              console.error("Slot calc error:", slotErr);
-              return "Възникна грешка при проверка на свободните часове. Опитайте отново.";
-            }
-            const now = moment();
-            const searchDate = requestedDate || moment().format("YYYY-MM-DD");
-            const availableToday = slots.filter((slot) =>
-              moment(`${searchDate}T${slot.startTime}`).isAfter(now)
+        if (staffToCheck.length > 0) {
+          const availParts = [];
+          for (const staff of staffToCheck) {
+            // Find the minimum service duration for this staff
+            const staffServices = context.services.filter((svc) =>
+              svc.staffMembers.some((sm) => sm.includes(staff.id))
             );
-
-            if (availableToday.length > 0) {
-              const closestSlot = availableToday[0];
-              currentState.suggestedDate = searchDate;
-              currentState.suggestedTime = closestSlot.startTime;
-              return `Най-близкият свободен час при ${foundStaff.firstName} ${
-                foundStaff.lastName
-              } е ${
-                searchDate === moment().format("YYYY-MM-DD")
-                  ? "днес"
-                  : moment(searchDate).format("DD.MM.YYYY")
-              } в ${
-                closestSlot.startTime
-              }. Искате ли да запазите този час? (Отговорете с 'да', 'не' или напишете друга дата)`;
+            const minDur =
+              staffServices.length > 0
+                ? Math.min(...staffServices.map((s) => s.duration))
+                : 30;
+            const slots = await this._getAvailabilityForStaffDate(
+              staff.id,
+              requestedDate,
+              minDur,
+              locationId
+            );
+            if (slots.length > 0) {
+              const slotTimes = slots.slice(0, 12).map((s) => s.startTime).join(", ");
+              availParts.push(
+                `${staff.firstName} ${staff.lastName} on ${requestedDate}: ${slotTimes}${slots.length > 12 ? ` (+${slots.length - 12} more)` : ""}`
+              );
             } else {
-              let foundSlot = null;
-              let foundDate = null;
-
-              for (let i = 1; i <= 7; i++) {
-                const searchDate = moment().add(i, "days").format("YYYY-MM-DD");
-                try {
-                  const { slots: futureSlots } = await getAvailableSlots(
-                    foundStaff._id,
-                    searchDate,
-                    currentState.service.duration
-                  );
-                  if (futureSlots.length > 0) {
-                    foundSlot = futureSlots[0];
-                    foundDate = searchDate;
-                    break;
-                  }
-                } catch (futureErr) {
-                  console.warn(
-                    "Future slot check failed for date",
-                    searchDate,
-                    futureErr
-                  );
-                }
-              }
-
-              if (foundSlot && foundDate) {
-                currentState.suggestedDate = foundDate;
-                currentState.suggestedTime = foundSlot.startTime;
-                return `${foundStaff.firstName} ${
-                  foundStaff.lastName
-                } няма свободни часове днес. Най-близкият свободен час е на ${moment(
-                  foundDate
-                ).format("DD.MM.YYYY")} в ${
-                  foundSlot.startTime
-                }. Искате ли да запазите този час? (Отговорете с 'да', 'не' или напишете друга дата)`;
-                // New: If a slot is suggested, wait for user confirmation or new date
-                if (
-                  currentState.service &&
-                  currentState.staff &&
-                  currentState.suggestedDate &&
-                  currentState.suggestedTime &&
-                  !(currentState.date && currentState.time)
-                ) {
-                  // Check if user replied with a date
-                  const dateFromMsg = parseRequestedDate();
-                  if (
-                    dateFromMsg &&
-                    dateFromMsg !== currentState.suggestedDate
-                  ) {
-                    // User wants to see slots for another date
-                    let slots = [];
-                    try {
-                      const avail = await getAvailableSlots(
-                        currentState.staff._id,
-                        dateFromMsg,
-                        currentState.service.duration
-                      );
-                      slots = avail.slots || [];
-                    } catch (slotErr) {
-                      console.error("Slot calc error (alt date):", slotErr);
-                      return "Възникна грешка при проверка на свободните часове. Опитайте отново.";
-                    }
-                    if (slots.length > 0) {
-                      const slotList = slots.map((s) => s.startTime).join(", ");
-                      currentState.suggestedDate = dateFromMsg;
-                      currentState.suggestedTime = slots[0].startTime;
-                      return `Свободни часове при ${
-                        currentState.staff.firstName
-                      } ${currentState.staff.lastName} на ${moment(
-                        dateFromMsg
-                      ).format(
-                        "DD.MM.YYYY"
-                      )}: ${slotList}. Искате ли да запазите първия? (Отговорете с 'да', 'не' или друга дата)`;
-                    } else {
-                      return `Няма свободни часове при ${
-                        currentState.staff.firstName
-                      } ${currentState.staff.lastName} на ${moment(
-                        dateFromMsg
-                      ).format("DD.MM.YYYY")}. Опитайте друга дата.`;
-                    }
-                  }
-                  // If user confirms
-                  if (
-                    lowerCaseMessage.includes("да") ||
-                    lowerCaseMessage.includes("потвърди") ||
-                    lowerCaseMessage.includes("запази")
-                  ) {
-                    currentState.date = currentState.suggestedDate;
-                    currentState.time = currentState.suggestedTime;
-                    // Continue to next step (name/email/phone)
-                  } else if (
-                    lowerCaseMessage.includes("не") ||
-                    lowerCaseMessage.includes("отказ")
-                  ) {
-                    // Reset suggested slot, ask for another date
-                    delete currentState.suggestedDate;
-                    delete currentState.suggestedTime;
-                    return "Моля, напишете друга дата или изберете друг служител.";
-                  } else {
-                    return `Искате ли да запазите този час? (Отговорете с 'да', 'не' или напишете друга дата)`;
-                  }
-                }
-              } else {
-                this.conversationState[userId] = {};
-                return `За съжаление, ${foundStaff.firstName} ${foundStaff.lastName} няма свободни часове в следващите 7 дни. Моля, изберете друг служител или опитайте по-късно.`;
-              }
+              availParts.push(
+                `${staff.firstName} ${staff.lastName} on ${requestedDate}: no available slots`
+              );
             }
-          } else {
-            const staffNames = staffForService
-              .map((s) => `${s.firstName} ${s.lastName}`)
-              .join(", ");
-            return `Моля, изберете служител от: ${staffNames}.`;
           }
-        }
-
-        // Step 3: Confirm booking
-        if (
-          currentState.service &&
-          currentState.staff &&
-          currentState.date &&
-          currentState.time
-        ) {
-          // Sequential data collection: name -> email -> phone -> confirmation
-          const collectName = !currentState.clientName;
-          const collectEmail =
-            currentState.clientName && !currentState.clientEmail;
-          const collectPhone =
-            currentState.clientName &&
-            currentState.clientEmail &&
-            !currentState.clientPhone;
-
-          if (collectName) {
-            // Simple heuristic: if message contains letters and not already recognized as confirmation, treat entire input as name
-            const nameCandidate = message.trim();
-            const nameOk = /^[A-Za-zА-Яа-яЁёІіЇїЬьЪъ\s'-]{2,50}$/.test(
-              nameCandidate
+          extraAvailability = `\n\n[REAL-TIME AVAILABILITY DATA for this query]:\n${availParts.join("\n")}`;
+        } else {
+          // No specific staff mentioned, check all staff
+          const availParts = [];
+          for (const staff of context.staffList) {
+            const staffServices = context.services.filter((svc) =>
+              svc.staffMembers.some((sm) => sm.includes(staff.id))
             );
-            if (nameOk && !/(да|не|отказ)/i.test(nameCandidate.toLowerCase())) {
-              currentState.clientName = nameCandidate
-                .replace(/\s+/g, " ")
-                .trim();
-              return (
-                "Записах името: " +
-                currentState.clientName +
-                ". Моля, въведете вашия email."
-              );
-            }
-            return "Моля, въведете вашето име (пример: Иван Петров).";
-          }
-
-          if (collectEmail) {
-            const emailCandidate = message.trim();
-            const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(
-              emailCandidate
+            const minDur =
+              staffServices.length > 0
+                ? Math.min(...staffServices.map((s) => s.duration))
+                : 30;
+            const slots = await this._getAvailabilityForStaffDate(
+              staff.id,
+              requestedDate,
+              minDur,
+              locationId
             );
-            if (emailOk) {
-              currentState.clientEmail = emailCandidate;
-              return (
-                "Записах email: " +
-                currentState.clientEmail +
-                ". Моля, въведете телефон (пример: +359888123456)."
+            if (slots.length > 0) {
+              const slotTimes = slots.slice(0, 8).map((s) => s.startTime).join(", ");
+              availParts.push(
+                `${staff.firstName} ${staff.lastName}: ${slotTimes}${slots.length > 8 ? ` (+${slots.length - 8} more)` : ""}`
+              );
+            } else {
+              availParts.push(
+                `${staff.firstName} ${staff.lastName}: no slots`
               );
             }
-            return "Моля, въведете валиден email адрес.";
           }
-
-          if (collectPhone) {
-            const phoneCandidate = message.trim();
-            const phoneOk = /^(\+?\d[\d\s-]{6,18})$/.test(phoneCandidate);
-            if (phoneOk) {
-              currentState.clientPhone = phoneCandidate.replace(/\s+/g, " ");
-              return (
-                "Записах телефон: " +
-                currentState.clientPhone +
-                `. Потвърдете запазването с 'да' или отменете с 'не'.`
-              );
-            }
-            return "Моля, въведете валиден телефон (цифри, може +359).";
-          }
-
-          // Now we have all data; wait for confirmation
-          if (
-            lowerCaseMessage.includes("да") ||
-            lowerCaseMessage.includes("потвърди") ||
-            lowerCaseMessage.includes("запази")
-          ) {
-            try {
-              const startDateTime = moment(
-                `${currentState.date}T${currentState.time}`
-              );
-              await Appointment.create({
-                business: businessId,
-                service: currentState.service._id,
-                appointmentTime: {
-                  start: startDateTime.toDate(),
-                  end: startDateTime
-                    .clone()
-                    .add(currentState.service.duration, "minutes")
-                    .toDate(),
-                },
-                client: userId,
-                clientName: currentState.clientName || "Чатбот Клиент",
-                clientPhone: currentState.clientPhone || "Няма",
-                email: currentState.clientEmail || "chatbot@example.com",
-                staff: currentState.staff._id,
-                status: "pending",
-              });
-              console.log(
-                "✅ Appointment created via chatbot for user",
-                userId
-              );
-              const successMessage =
-                `✅ Благодаря! Вашият час е успешно запазен!\n\n` +
-                `📋 Детайли:\n` +
-                `• Услуга: ${currentState.service.name}\n` +
-                `• Служител: ${currentState.staff.firstName} ${currentState.staff.lastName}\n` +
-                `• Дата: ${startDateTime.format("DD.MM.YYYY")}\n` +
-                `• Час: ${startDateTime.format("HH:mm")}\n` +
-                `• Продължителност: ${currentState.service.duration} минути\n` +
-                `• Цена: ${currentState.service.price} лв\n` +
-                (currentState.clientName
-                  ? `• Клиент: ${currentState.clientName}\n`
-                  : "") +
-                (currentState.clientEmail
-                  ? `• Email: ${currentState.clientEmail}\n`
-                  : "") +
-                (currentState.clientPhone
-                  ? `• Телефон: ${currentState.clientPhone}\n`
-                  : "") +
-                `\nОчакваме ви!`;
-              this.conversationState[userId] = {};
-              return successMessage;
-            } catch (error) {
-              console.error("Error creating appointment:", error);
-              this.conversationState[userId] = {};
-              return "Съжалявам, възникна грешка при запазването на часа. Моля, опитайте отново.";
-            }
-          }
-          if (
-            lowerCaseMessage.includes("не") ||
-            lowerCaseMessage.includes("отказ")
-          ) {
-            this.conversationState[userId] = {};
-            return 'Запазването е отменено. Ако искате нов час, кажете "искам да запазя час".';
-          }
-          return 'Моля, потвърдете със "да" или отменете с "не".';
+          extraAvailability = `\n\n[REAL-TIME AVAILABILITY for ${requestedDate}]:\n${availParts.join("\n")}`;
         }
       }
 
-      // Check availability
-      if (intent === Intents.CHECK_AVAILABILITY) {
-        try {
-          const services = await Service.find({ business: businessId }).lean();
-          const allStaffIds = new Set();
+      // Build the conversation for Gemini
+      const systemPrompt = this._buildSystemPrompt(context, locationId) + extraAvailability;
 
-          services.forEach((service) => {
-            if (Array.isArray(service.staffMembers)) {
-              service.staffMembers.forEach((staffId) => {
-                if (staffId) {
-                  allStaffIds.add(String(staffId));
-                }
-              });
-            }
-          });
+      // Add user message to history
+      conversation.history.push({
+        role: "user",
+        parts: [{ text: message }],
+      });
 
-          const validStaffIds = Array.from(allStaffIds).filter((id) =>
-            mongoose.Types.ObjectId.isValid(id)
-          );
-          const staff = await User.find({
-            _id: { $in: validStaffIds },
-          }).lean();
+      // Keep history manageable (last 20 messages)
+      if (conversation.history.length > 20) {
+        conversation.history = conversation.history.slice(-20);
+      }
 
-          if (!staff || staff.length === 0) {
-            return "Няма налични служители в момента.";
-          }
+      // Call Gemini
+      const model = this._createModelWithSystemPrompt(systemPrompt);
+      const chat = model.startChat({
+        history: conversation.history.slice(0, -1), // All except last
+      });
 
-          // Staff-specific availability: "свободни часове при <име>"
-          const staffNameMatch = lowerCaseMessage.match(
-            /(?:при|за)\s+([А-ЯA-Zа-яa-z]+)/i
-          );
-          if (staffNameMatch) {
-            const fragment = staffNameMatch[1].toLowerCase();
-            const chosen = staff.find(
-              (s) =>
-                s.firstName.toLowerCase().startsWith(fragment) ||
-                s.lastName.toLowerCase().startsWith(fragment)
-            );
-            if (chosen) {
-              let duration = 30;
-              const durations = [];
-              services.forEach((svc) => {
-                if (
-                  Array.isArray(svc.staffMembers) &&
-                  svc.staffMembers.some(
-                    (stId) =>
-                      stId && String(stId) === String(chosen._id)
-                  )
-                ) {
-                  durations.push(svc.duration);
-                }
-              });
-              if (durations.length > 0) duration = Math.min(...durations);
-              const dateSearch = requestedDate || moment().format("YYYY-MM-DD");
-              let availSlots = [];
-              try {
-                const { slots: staffSlots } = await getAvailableSlots(
-                  chosen._id,
-                  dateSearch,
-                  duration
-                );
-                availSlots = staffSlots;
-              } catch (asErr) {
-                console.warn("Staff-specific availability slot error", asErr);
-              }
-              if (availSlots.length === 0) {
-                return `Няма свободни часове при ${chosen.firstName} ${chosen.lastName} за избраната дата.`;
-              }
-              const slotList = availSlots
-                .slice(0, 10)
-                .map((slt) => slt.startTime)
-                .join(", ");
-              return `Свободни часове при ${chosen.firstName} ${
-                chosen.lastName
-              } на ${moment(dateSearch).format(
-                "DD.MM.YYYY"
-              )} : ${slotList}. За да запазите час, кажете 'Искам да запазя час'.`;
-            }
-          }
-          const staffList = staff
-            .map((s) => `• ${s.firstName} ${s.lastName}`)
-            .join("\n");
-          return `Налични служители:\n${staffList}\n\nМоже да попитате: 'Свободни часове при <име>' или да кажете 'Искам да запазя час'.`;
-        } catch (error) {
-          console.error("Error checking availability:", error);
-          return "Съжалявам, възникна грешка при проверката на наличността.";
+      const result = await chat.sendMessage(message);
+      const responseText = result.response.text();
+
+      // Add assistant response to history
+      conversation.history.push({
+        role: "model",
+        parts: [{ text: responseText }],
+      });
+
+      // Check if response contains a booking action
+      const bookingAction = this._extractBookingAction(responseText);
+      if (bookingAction) {
+        const bookingResult = await this._executeBooking(
+          bookingAction,
+          businessId,
+          userId,
+          locationId
+        );
+        if (bookingResult.success) {
+          // Remove the JSON block from the displayed response
+          const cleanResponse = responseText
+            .replace(/```json[\s\S]*?```/g, "")
+            .trim();
+          // Reset conversation after successful booking
+          delete this.conversations[userId];
+          return cleanResponse || bookingResult.message;
+        } else {
+          return bookingResult.message;
         }
       }
 
-      // Unknown intent
-      console.log("🤷 Unknown intent for user:", userId);
-      return "Съжалявам, не мога да ви разбера. Моля, опитайте:\n• 'Искам да запазя час'\n• 'Кои са свободните часове?'\n• 'Здравей' за начало";
+      // Remove any accidental JSON blocks from response for display
+      const cleanResponse = responseText.replace(/```json[\s\S]*?```/g, "").trim();
+      return cleanResponse;
     } catch (err) {
       console.error("💥 Chatbot processing error:", err);
-      // Keep state so user can retry or decide to restart
-      return "Възникна вътрешна грешка. Моля, опитайте отново или напишете 'отказ'.";
+      if (err.message?.includes("GEMINI_API_KEY")) {
+        return "⚠️ AI системата не е конфигурирана. Моля, свържете се с администратора. / AI system is not configured.";
+      }
+      return "❌ Възникна грешка. Моля, опитайте отново. / An error occurred. Please try again.";
+    }
+  }
+
+  // ─── Extract booking action from response ─────────────────────────
+  _extractBookingAction(responseText) {
+    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+    if (!jsonMatch) return null;
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (parsed.action === "book") {
+        return parsed;
+      }
+    } catch (e) {
+      console.warn("Failed to parse booking JSON:", e);
+    }
+    return null;
+  }
+
+  // ─── Execute booking ──────────────────────────────────────────────
+  async _executeBooking(action, businessId, userId, locationId) {
+    try {
+      const { service, staff, date, time, clientName, clientEmail, clientPhone } =
+        action;
+
+      // Validate required fields
+      if (!service || !staff || !date || !time) {
+        return {
+          success: false,
+          message:
+            "❌ Липсват данни за резервацията. Моля, уточнете услуга, служител, дата и час.",
+        };
+      }
+
+      // Validate service exists
+      const serviceDoc = await Service.findById(service).lean();
+      if (!serviceDoc) {
+        return {
+          success: false,
+          message: "❌ Услугата не е намерена. Моля, опитайте отново.",
+        };
+      }
+
+      // Validate staff exists
+      const staffDoc = await User.findById(staff).lean();
+      if (!staffDoc) {
+        return {
+          success: false,
+          message: "❌ Служителят не е намерен. Моля, опитайте отново.",
+        };
+      }
+
+      // Check slot is still available
+      const slots = await this._getAvailabilityForStaffDate(
+        staff,
+        date,
+        serviceDoc.duration,
+        locationId
+      );
+      const slotAvailable = slots.some((s) => s.startTime === time);
+      if (!slotAvailable) {
+        return {
+          success: false,
+          message: `❌ За съжаление, часът ${time} на ${date} вече не е свободен. Моля, изберете друг час.`,
+        };
+      }
+
+      const startDateTime = moment.tz(
+        `${date}T${time}`,
+        "YYYY-MM-DDTHH:mm",
+        APP_TIMEZONE
+      );
+
+      await Appointment.create({
+        business: businessId,
+        service: serviceDoc._id,
+        appointmentTime: {
+          start: startDateTime.toDate(),
+          end: startDateTime
+            .clone()
+            .add(serviceDoc.duration, "minutes")
+            .toDate(),
+        },
+        client: mongoose.Types.ObjectId.isValid(userId) ? userId : undefined,
+        clientName: clientName || "Chatbot Client",
+        clientPhone: clientPhone || "",
+        email: clientEmail || "",
+        staff: staffDoc._id,
+        status: "pending",
+        locationId: locationId || undefined,
+      });
+
+      console.log("✅ Appointment created via AI chatbot for user", userId);
+
+      return {
+        success: true,
+        message: `✅ Часът е успешно запазен!\n📋 ${serviceDoc.name}\n👤 ${staffDoc.firstName} ${staffDoc.lastName}\n📅 ${startDateTime.format("DD.MM.YYYY")} в ${startDateTime.format("HH:mm")}\n⏱️ ${serviceDoc.duration} мин | 💰 ${serviceDoc.price} €`,
+      };
+    } catch (error) {
+      console.error("Booking execution error:", error);
+      return {
+        success: false,
+        message:
+          "❌ Грешка при запазване на часа. Моля, опитайте отново. / Booking error. Please try again.",
+      };
+    }
+  }
+
+  // ─── Business-help system prompt ─────────────────────────────────
+  _buildBusinessHelpPrompt() {
+    return `You are a professional, friendly AI assistant for AppointDI — a SaaS platform for appointment scheduling and business management.
+Your role is to help BUSINESS OWNERS, MANAGERS, and STAFF navigate and use the platform effectively.
+
+CRITICAL RULES:
+1. ALWAYS respond in the SAME LANGUAGE the user writes in. If they write in Bulgarian, respond in Bulgarian. If in English, respond in English.
+2. Be concise but thorough. Use bullet points, numbered steps, and formatting to make instructions easy to follow.
+3. Use emojis sparingly to make responses warm (📋, ⚙️, 👥, 📅, ✅, 💡, 📍 etc.).
+4. If the user's question is unclear, ask a clarifying question.
+5. Always refer to specific pages/sections of the platform by name so the user knows exactly where to go.
+6. All prices and monetary values in the platform are in Euro (€).
+
+═══ APPOINTDI PLATFORM KNOWLEDGE ═══
+
+📊 DASHBOARD (/dashboard):
+- Overview of today's appointments, revenue, and key metrics
+- Quick stats: total bookings, revenue, clients served
+- Charts for weekly/monthly trends
+- The dashboard is the first page you see after login
+
+📋 SERVICE TYPES / УСЛУГИ (/appointment-types):
+- Here the user can create, edit, and delete services
+- To CREATE a new service:
+  1. Go to "Service Types" (Видове услуги) from the left navigation → Business → Configuration → Service Types
+  2. Click the "Add Service" (Добави услуга) button
+  3. Fill in: Service name, Description, Duration (minutes), Price (€), Category
+  4. Select which staff members can perform this service
+  5. Select which locations offer this service
+  6. Choose payment options (on-site, online, or both)
+  7. For group services: enable "Group Service" toggle and set capacity
+  8. Click Save
+- To EDIT a service: Click on the service card or the edit button
+- To DELETE a service: Click the delete button on the service card
+
+📅 SCHEDULE / ГРАФИК (/schedule):
+- Here business users manage staff working schedules
+- To CREATE/EDIT a schedule:
+  1. Go to "Schedule" (График) from left navigation → Business → Configuration → Schedule
+  2. Select the staff member whose schedule you want to manage
+  3. Select the location
+  4. Set working hours for each day of the week (Monday–Sunday)
+  5. Mark days off by toggling the day off switch
+  6. Set break times if needed
+  7. Click Save
+- The schedule determines when clients can book appointments with each staff member
+
+👥 STAFF MANAGEMENT / ПЕРСОНАЛ (/staff):
+- Manage your team members
+- To ADD a new staff member:
+  1. Go to "Staff Management" (Управление на персонал) from left navigation → Business → Configuration → Staff Management
+  2. Click "Add Staff" (Добави служител)
+  3. Enter: First name, Last name, Email, Phone
+  4. Set their role (staff or manager)
+  5. Staff members will receive an email invitation to join
+- To EDIT staff: Click on the staff member's card
+- To REMOVE staff: Use the delete option on their card
+- Managers have more permissions than regular staff
+
+📍 LOCATIONS / ЛОКАЦИИ (/business/locations):
+- Manage multiple business locations
+- To ADD a new location:
+  1. Go to "Locations" (Локации) from left navigation → Business → Configuration → Locations
+  2. Click "Add Location" (Добави локация)
+  3. Enter: Location name, Address, City, Phone, Email
+  4. Set working hours for each day of the week
+  5. Click Save
+- Each location can have its own working hours, services, and staff
+
+🏢 BUSINESS INFORMATION (/business/business-information):
+- Edit your business profile
+- Update: Business name, Category, About Us description
+- Upload business logo and cover images
+- This information appears on your public business page
+
+📱 QR CODE (/business/qr-code):
+- Generate a QR code that links to your public business page
+- Clients can scan the QR code to view your services and book appointments
+- Download and print the QR code for display at your business
+
+📈 PERFORMANCE / АНАЛИЗИ (/performance):
+- View detailed analytics about your business
+- Charts for: Revenue trends, Booking counts, Popular services, Staff performance
+- Filter by date range, location, staff
+
+💬 MESSAGES / СЪОБЩЕНИЯ (/chat):
+- Internal messaging system between business owner, managers, and staff
+- Real-time chat with read receipts
+- Communicate about appointments, schedule changes, etc.
+
+📋 TASK MANAGER / ЗАДАЧИ (/kanban):
+- Kanban board for managing business tasks
+- Create, assign, and track tasks
+- Drag and drop between columns (To Do, In Progress, Done)
+
+💳 PAYMENTS / ПЛАЩАНИЯ (/settings/payments):
+- Configure payment settings for your business
+- Connect payment providers
+- View transaction history
+
+📄 SUBSCRIPTION / АБОНАМЕНТ (/dashboard/subscription):
+- View and manage your subscription plan
+- Available plans: Starter, Professional, Enterprise
+- View billing history, next payment date
+- Upgrade or downgrade your plan
+
+🌐 PUBLIC BUSINESS PAGE (/business/[id]):
+- This is the page your clients see
+- Shows your services, locations, staff, and working hours
+- Clients can book appointments through this page
+- The AI chatbot helps clients with booking on this page
+
+👤 PROFILE (/profile):
+- Edit personal profile: name, email, phone, profile picture
+- Change password
+- Set theme preference (light/dark)
+- Choose preferred language (BG/EN)
+
+🆘 SUPPORT / ПОДДРЪЖКА:
+- If the user has a problem or needs help, there are TWO ways to contact support:
+  1. Go to "Messages" (Съобщения) page (/chat) — write directly to the support team via the built-in messaging system
+  2. Go to "Help" (Помощ) page (/help/contact) — there you will find the support phone number and email address for direct contact
+- ALWAYS recommend both options when users ask about support or have issues they cannot resolve themselves
+
+═══ COMMON QUESTIONS ═══
+
+Q: "How do I get more clients?"
+A: Share your public business page link or QR code. The page has an AI chatbot that helps clients book appointments 24/7.
+
+Q: "Can I have multiple locations?"
+A: Yes! Go to Business → Configuration → Locations to add as many locations as you need.
+
+Q: "How do staff members log in?"
+A: After you add a staff member with their email, they receive an invitation email with login credentials.
+
+Q: "How do I see my appointments?"
+A: Go to Dashboard to see today's appointments, or use the calendar view for a specific date range.
+
+Q: "I have a problem, who can I contact?"
+A: You can reach our support team in two ways: 1) Go to "Messages" (Съобщения) and write to our support team directly, or 2) Visit the "Help" (Помощ) page where you'll find our phone number and email.
+
+═══ END OF KNOWLEDGE ═══
+
+Remember: Be helpful, give specific navigation paths, and respond in the user's language.`;
+  }
+
+  // ─── Process business-help message ───────────────────────────────
+  async processBusinessHelp(message, userId) {
+    try {
+      // Rate limiting
+      const nowTs = Date.now();
+      const helpKey = `help_${userId}`;
+      if (!this.rateCounters[helpKey]) {
+        this.rateCounters[helpKey] = { count: 0, windowStart: nowTs };
+      }
+      const rc = this.rateCounters[helpKey];
+      if (nowTs - rc.windowStart > this.RATE_LIMIT_WINDOW_MS) {
+        rc.windowStart = nowTs;
+        rc.count = 0;
+      }
+      rc.count++;
+      if (rc.count > this.RATE_LIMIT_MAX) {
+        return "⏳ Моля, изчакайте малко преди да изпратите още съобщения. / Please wait before sending more messages.";
+      }
+
+      // Check inactivity timeout
+      const convKey = `help_${userId}`;
+      const conv = this.conversations[convKey];
+      if (conv && nowTs - conv.lastActivity > this.TIMEOUT_MS) {
+        delete this.conversations[convKey];
+      }
+
+      // Initialize or get conversation
+      if (!this.conversations[convKey]) {
+        this.conversations[convKey] = {
+          history: [],
+          lastActivity: nowTs,
+        };
+      }
+      const conversation = this.conversations[convKey];
+      conversation.lastActivity = nowTs;
+
+      const systemPrompt = this._buildBusinessHelpPrompt();
+
+      // Add user message to history
+      conversation.history.push({
+        role: "user",
+        parts: [{ text: message }],
+      });
+
+      // Keep history manageable (last 20 messages)
+      if (conversation.history.length > 20) {
+        conversation.history = conversation.history.slice(-20);
+      }
+
+      // Call Gemini
+      const model = this._createModelWithSystemPrompt(systemPrompt);
+      const chat = model.startChat({
+        history: conversation.history.slice(0, -1),
+      });
+
+      const result = await chat.sendMessage(message);
+      const responseText = result.response.text();
+
+      // Add assistant response to history
+      conversation.history.push({
+        role: "model",
+        parts: [{ text: responseText }],
+      });
+
+      return responseText;
+    } catch (err) {
+      console.error("💥 Business help chatbot error:", err);
+      if (err.message?.includes("GEMINI_API_KEY")) {
+        return "⚠️ AI системата не е конфигурирана. Моля, свържете се с администратора. / AI system is not configured.";
+      }
+      return "❌ Възникна грешка. Моля, опитайте отново. / An error occurred. Please try again.";
     }
   }
 }

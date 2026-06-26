@@ -89,6 +89,20 @@ const businessSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    // Referral System
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Business",
+      required: false,
+    },
+    referralRewardClaimed: {
+      type: Boolean,
+      default: false,
+    },
+    earnedDiscountMonths: {
+      type: Number,
+      default: 0,
+    },
   },
 
   { timestamps: true }

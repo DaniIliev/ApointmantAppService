@@ -21,9 +21,10 @@ import kanbanRoutes from "./routes/kanban.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
 import analyticsRoutes from "./routes/analytics.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
+import chatRoutes from "./routes/chat.routes.js";
 import { swaggerDocs } from "./config/swagger.js";
 import { notFound, errorHandler } from "./middlewares/error.js";
-import chatbot from "./chatbot/chatbot.js";
+import { metricsMiddleware } from "./middlewares/metrics.js";
 import { startSubscriptionExpirationJob } from "./jobs/subscriptionExpirationCheck.js";
 import locationRoutes from "./routes/location.routes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
@@ -48,6 +49,33 @@ io.on("connection", (socket) => {
     socket.join(userId);
     console.log(`User ${userId} joined room`);
   });
+
+  // ─── Chat events ───────────────────────────────────────
+  socket.on("joinChannel", (channelId) => {
+    socket.join(`channel:${channelId}`);
+    console.log(`Socket ${socket.id} joined channel:${channelId}`);
+  });
+
+  socket.on("leaveChannel", (channelId) => {
+    socket.leave(`channel:${channelId}`);
+    console.log(`Socket ${socket.id} left channel:${channelId}`);
+  });
+
+  socket.on("typing", ({ channelId, userId, userName }) => {
+    socket.to(`channel:${channelId}`).emit("userTyping", {
+      channelId,
+      userId,
+      userName,
+    });
+  });
+
+  socket.on("stopTyping", ({ channelId, userId }) => {
+    socket.to(`channel:${channelId}`).emit("userStopTyping", {
+      channelId,
+      userId,
+    });
+  });
+
   socket.on("disconnect", () => {
     console.log("User disconnected");
   });
@@ -81,6 +109,7 @@ app.use(
   stripeConnectWebhookRoutes
 );
 app.use(express.json());
+app.use(metricsMiddleware);
 
 app.get("/", (req, res) => {
   res.send("🚀 Appointment API is running. Go to /api-docs for Swagger UI");
@@ -104,6 +133,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/locations", locationRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/chat", chatRoutes);
 app.use(passport.initialize());
 
 app.use(notFound);
@@ -113,7 +143,6 @@ console.log("MONGO_URI:", MONGO_URI);
   try {
     await mongoose.connect(MONGO_URI);
     console.log("✅ MongoDB connected");
-    await chatbot.initialize();
 
     startSubscriptionExpirationJob();
 

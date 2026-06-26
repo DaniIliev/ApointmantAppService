@@ -3,7 +3,6 @@ const APP_TIMEZONE = "Europe/Sofia";
 import StaffSchedule from "../models/StaffSchedule.js";
 import Appointment from "../models/Appointment.js";
 import Service from "../models/Service.js";
-import DailySchedule from "../models/DailySchedule.js";
 
 const mergeIntervals = (intervals) => {
   if (intervals.length === 0) return [];
@@ -58,193 +57,113 @@ const generateSlotsFromFreeTime = (workStart, workEnd, mergedIntervals, serviceD
 
 export const getAvailableSlots = async (staffId, date, serviceDuration, locationId, serviceId = null) => {
   try {
-    // Parse date strictly in app timezone; accept bare YYYY-MM-DD or ISO and anchor to the provided day.
-    const requestedDate = moment
-      .tz(date, ["YYYY-MM-DD", moment.ISO_8601], APP_TIMEZONE)
-      .startOf("day");
+    const requestedDate = moment.tz(date, ["YYYY-MM-DD", moment.ISO_8601], APP_TIMEZONE).startOf("day");
+    if (!requestedDate.isValid()) return { slots: [], message: t("Невалидна дата.") };
+    if (!Number.isFinite(serviceDuration) || serviceDuration <= 0) return { slots: [], message: t("Невалидна продължителност.") };
 
-    if (!requestedDate.isValid()) {
-      return { slots: [], message: "Невалидна дата." };
-    }
+    const startOfRequestedDay = requestedDate.clone().startOf("day").toDate();
+    const endOfRequestedDay = requestedDate.clone().endOf("day").toDate();
 
-    // Validate duration to avoid infinite loops / timeouts
-    if (!Number.isFinite(serviceDuration) || serviceDuration <= 0) {
-      return { slots: [], message: "Невалидна продължителност на услугата." };
-    }
+    // 1. Fetch StaffSchedule with populated DailySchedule in one go
+    const query = { 
+      staff: staffId,
+      startDate: { $lte: endOfRequestedDay },
+      endDate: { $gte: startOfRequestedDay }
+    };
+    if (locationId) query.location = locationId;
 
-    // Първо, намираме StaffSchedule за служителя
-    const query = { staff: staffId };
-    if (locationId) {
-      query.location = locationId;
-    }
-    
-    let staffSchedule = await StaffSchedule.findOne(query);
-    
-    // Fallback: If no staff-specific schedule, check for a location-level schedule (staff: null)
+    let staffSchedule = await StaffSchedule.findOne(query).populate("dailySchedule");
+
+    // Fallback if no specific staff schedule
     if (!staffSchedule && locationId) {
-      staffSchedule = await StaffSchedule.findOne({ location: locationId, staff: null });
+      staffSchedule = await StaffSchedule.findOne({ 
+        location: locationId, 
+        staff: null,
+        startDate: { $lte: endOfRequestedDay },
+        endDate: { $gte: startOfRequestedDay }
+      }).populate("dailySchedule");
     }
 
-    if (!staffSchedule) {
-      return {
-        slots: [],
-        message: "Няма създаден основен график за този служител за избраната локация.",
-      };
+    if (!staffSchedule?.dailySchedule) {
+      return { slots: [], message: "Няма създаден график за избраната дата." };
     }
 
-    const startOfDay = requestedDate.clone().startOf("day").toDate();
-    const endOfDay = requestedDate.clone().endOf("day").toDate();
-
-    const dailySchedule = await DailySchedule.findById(staffSchedule.dailySchedule);
-
-    if (!dailySchedule) {
-      return { slots: [], message: "Няма работен график за избраната дата." };
-    }
-
-    // Ensure dailyWorkHours date is compared in app timezone (not server/UTC time)
-    const dailyWorkHours = dailySchedule.workHours.find((wh) =>
+    // 2. Extract specific day data
+    const dailyWorkHours = staffSchedule.dailySchedule.workHours.find((wh) =>
       moment.tz(wh.date, APP_TIMEZONE).isSame(requestedDate, "day")
     );
 
-    if (!dailyWorkHours || dailyWorkHours.isDayOff) {
+    if (!dailyWorkHours || dailyWorkHours.isDayOff || !dailyWorkHours.workTime?.start || !dailyWorkHours.workTime?.end) {
       return { slots: [], message: "Служителят не работи на тази дата." };
     }
 
-    // Get requested service details for group logic
-    const requestedService = serviceId ? await Service.findById(serviceId) : null;
-    const isGroup = requestedService?.isGroup || false;
-    const capacity = requestedService?.capacity || 1;
     const baseDate = moment.tz(dailyWorkHours.date, APP_TIMEZONE).format("YYYY-MM-DD");
+    const workStart = moment.tz(`${baseDate}T${dailyWorkHours.workTime.start}`, "YYYY-MM-DDTHH:mm", APP_TIMEZONE);
+    const workEnd = moment.tz(`${baseDate}T${dailyWorkHours.workTime.end}`, "YYYY-MM-DDTHH:mm", APP_TIMEZONE);
 
-    const staffServices = await Service.find({
-      staffMembers: staffId,
-    });
+    // 3. Determine Slot Step
+    const staffServices = await Service.find({ staffMembers: staffId });
+    const minSrvDur = staffServices.length > 0 ? Math.min(...staffServices.map(s => s.duration)) : serviceDuration;
+    const slotStep = Math.min(serviceDuration, minSrvDur) || 15;
 
-    if (!staffServices || staffServices.length === 0) {
-      return { slots: [], message: "Служителят не предлага услуги." };
-    }
-    const minServiceDuration = staffServices.reduce(
-      (min, service) => Math.min(min, service.duration),
-      Infinity
-    );
-    // **ВАЖНО:** Проверяваме дали избраната услуга е най-кратката, ако не, използваме нейната продължителност за стъпката
-    const stepCandidate = Math.min(serviceDuration, minServiceDuration);
-    const slotStep =
-      Number.isFinite(stepCandidate) && stepCandidate > 0
-        ? stepCandidate
-        : serviceDuration;
+    // 4. Collect Busy Intervals
+    const busyIntervals = (dailyWorkHours.breaks || [])
+      .filter(b => b.start && b.end)
+      .map(b => ({
+        start: moment.tz(`${baseDate}T${b.start}`, "YYYY-MM-DDTHH:mm", APP_TIMEZONE),
+        end: moment.tz(`${baseDate}T${b.end}`, "YYYY-MM-DDTHH:mm", APP_TIMEZONE),
+      }));
 
-    const bookedAppointments = await Appointment.find({
+    const booked = await Appointment.find({
       staff: staffId,
-      "appointmentTime.start": {
-        $gte: startOfDay,
-        $lt: endOfDay,
-      },
-      status: { $ne: "cancelled" }, // Exclude cancelled appointments
+      "appointmentTime.start": { $gte: startOfRequestedDay, $lt: endOfRequestedDay },
+      status: { $ne: "cancelled" }
     }).sort({ "appointmentTime.start": 1 });
 
-    if (!dailyWorkHours.workTime || !dailyWorkHours.workTime.start || !dailyWorkHours.workTime.end) {
-        return { slots: [], message: "Невалидно работно време за избраната дата." };
-    }
+    const requestedService = serviceId ? await Service.findById(serviceId) : null;
+    if (requestedService?.isGroup) {
+      // Group logic
+      const otherServices = booked.filter(a => String(a.service) !== String(serviceId));
+      otherServices.forEach(a => busyIntervals.push({
+        start: moment(a.appointmentTime.start).tz(APP_TIMEZONE),
+        end: moment(a.appointmentTime.end).tz(APP_TIMEZONE),
+      }));
 
-
-    const workStart = moment.tz(
-      `${baseDate}T${dailyWorkHours.workTime.start}`,
-      "YYYY-MM-DDTHH:mm",
-      APP_TIMEZONE
-    );
-    const workEnd = moment.tz(
-      `${baseDate}T${dailyWorkHours.workTime.end}`,
-      "YYYY-MM-DDTHH:mm",
-      APP_TIMEZONE
-    );
-
-
-    let availableSlots = [];
-    let currentTime = moment(workStart);
-    let apptIndex = 0;
-
-    // Списък на всички заети интервали (запазени часове и почивки)
-    const busyIntervals = [];
-
-    // Добавяме почивките (use baseDate to avoid timezone drift)
-    for (const breakTime of dailyWorkHours.breaks) {
-      busyIntervals.push({
-        start: moment.tz(
-          `${baseDate}T${breakTime.start}`,
-          "YYYY-MM-DDTHH:mm",
-          APP_TIMEZONE
-        ),
-        end: moment.tz(
-          `${baseDate}T${breakTime.end}`,
-          "YYYY-MM-DDTHH:mm",
-          APP_TIMEZONE
-        ),
-      });
-    }
-
-    if (!isGroup) {
-      // Standard logic: any appointment makes the slot busy
-      for (const appt of bookedAppointments) {
-        busyIntervals.push({
-          start: moment(appt.appointmentTime.start).tz(APP_TIMEZONE),
-          end: moment(appt.appointmentTime.end).tz(APP_TIMEZONE),
-        });
-      }
-    } else {
-      // Group service logic:
-      // 1. Appointments for DIFFERENT services always make the staff busy
-      const otherServiceAppointments = bookedAppointments.filter(
-        (appt) => String(appt.service) !== String(serviceId)
-      );
-      for (const appt of otherServiceAppointments) {
-        busyIntervals.push({
-          start: moment(appt.appointmentTime.start).tz(APP_TIMEZONE),
-          end: moment(appt.appointmentTime.end).tz(APP_TIMEZONE),
-        });
-      }
-
-      // 2. For the SAME group service, check if capacity is reached at each slot
-      const sameServiceAppointments = bookedAppointments.filter(
-        (appt) => String(appt.service) === String(serviceId)
-      );
-
-      // Group appointments by their start time
-      const appointmentsByStart = sameServiceAppointments.reduce((acc, appt) => {
-        const startTime = moment(appt.appointmentTime.start)
-          .tz(APP_TIMEZONE)
-          .format("HH:mm");
-        if (!acc[startTime]) acc[startTime] = [];
-        acc[startTime].push(appt);
+      const sameService = booked.filter(a => String(a.service) === String(serviceId));
+      const counts = sameService.reduce((acc, a) => {
+        const time = moment(a.appointmentTime.start).tz(APP_TIMEZONE).format("HH:mm");
+        acc[time] = (acc[time] || 0) + 1;
         return acc;
       }, {});
 
-      for (const startTime in appointmentsByStart) {
-        if (appointmentsByStart[startTime].length >= capacity) {
-          // If capacity is reached, mark this specific slot as busy
-          const appt = appointmentsByStart[startTime][0];
+      for (const t in counts) {
+        if (counts[t] >= requestedService.capacity) {
+          const match = sameService.find(a => moment(a.appointmentTime.start).tz(APP_TIMEZONE).format("HH:mm") === t);
           busyIntervals.push({
-            start: moment(appt.appointmentTime.start).tz(APP_TIMEZONE),
-            end: moment(appt.appointmentTime.end).tz(APP_TIMEZONE),
+            start: moment(match.appointmentTime.start).tz(APP_TIMEZONE),
+            end: moment(match.appointmentTime.end).tz(APP_TIMEZONE),
           });
         }
       }
+    } else {
+      booked.forEach(a => busyIntervals.push({
+        start: moment(a.appointmentTime.start).tz(APP_TIMEZONE),
+        end: moment(a.appointmentTime.end).tz(APP_TIMEZONE),
+      }));
     }
 
-
-    const mergedIntervals = mergeIntervals(busyIntervals);
-    
-    availableSlots = generateSlotsFromFreeTime(
+    // 5. Generate Slots
+    const availableSlots = generateSlotsFromFreeTime(
       workStart, 
       workEnd, 
-      mergedIntervals, 
+      mergeIntervals(busyIntervals), 
       serviceDuration, 
       slotStep
     );
 
     return { slots: availableSlots, message: "Намерени свободни часове." };
   } catch (error) {
-    console.error(error);
+    console.error("getAvailableSlots error:", error);
     return { slots: [], message: "Грешка при извличане на свободни часове." };
   }
 };
