@@ -42,6 +42,12 @@ export const createConnectAccountLink = async (req, res, next) => {
       formattedUrl = undefined;
     }
 
+    // Ако няма валиден уебсайт, подаваме публичната му страница в AppointDI!
+    // Stripe обожава това, защото виждат точно какви услуги продава.
+    if (!formattedUrl) {
+      formattedUrl = `${FRONTEND_URL}/business/${business._id}`;
+    }
+
     // Ако няма Connect Account, създаваме нов
     if (!accountId) {
       const account = await stripe.accounts.create({
