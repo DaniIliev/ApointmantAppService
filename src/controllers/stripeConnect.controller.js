@@ -28,6 +28,20 @@ export const createConnectAccountLink = async (req, res, next) => {
 
     let accountId = business.stripeConnectAccountId;
 
+    let formattedUrl = business.website;
+    if (formattedUrl && !formattedUrl.startsWith("http://") && !formattedUrl.startsWith("https://")) {
+      formattedUrl = `https://${formattedUrl}`;
+    }
+    
+    // Ensure it's a valid URL format for Stripe
+    try {
+      if (formattedUrl) {
+        new URL(formattedUrl);
+      }
+    } catch (e) {
+      formattedUrl = undefined;
+    }
+
     // Ако няма Connect Account, създаваме нов
     if (!accountId) {
       const account = await stripe.accounts.create({
@@ -41,7 +55,7 @@ export const createConnectAccountLink = async (req, res, next) => {
         business_type: "individual", // Или 'company' в зависимост от случая
         business_profile: {
           name: business.businessName,
-          url: business.website || undefined,
+          url: formattedUrl || undefined,
         },
       });
 
