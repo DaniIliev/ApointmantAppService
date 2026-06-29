@@ -36,7 +36,75 @@ const getOrCreateDashboard = async (ownerId, businessId) => {
 export const getDashboard = async (req, res) => {
   try {
     const ownerId = req.user?.id;
+    const userRole = req.user?.role;
     const businessId = req.user?.businessId;
+
+    if (userRole === "personal") {
+      return res.json({
+        owner: ownerId,
+        items: [
+          {
+            id: "client-spent-kpi",
+            type: "kpi",
+            title: "Spent Momentum",
+            kpiType: "totalRevenue",
+            layout: { x: 0, y: 0, w: 6, h: 2 },
+          },
+          {
+            id: "client-appointments-kpi",
+            type: "kpi",
+            title: "Total Appointments",
+            kpiType: "totalAppointments",
+            layout: { x: 6, y: 0, w: 6, h: 2 },
+          },
+          {
+            id: "client-spent-chart",
+            type: "line",
+            title: "Spent Dynamics",
+            configuration: {
+              dataSource: "revenue",
+              dimension: "time_series",
+              metric: "revenue",
+            },
+            layout: { x: 0, y: 2, w: 12, h: 4 },
+          },
+          {
+            id: "client-appointments-chart",
+            type: "bar",
+            title: "Appointments Dynamics",
+            configuration: {
+              dataSource: "appointments",
+              dimension: "time_series",
+              metric: "total",
+            },
+            layout: { x: 0, y: 6, w: 12, h: 4 },
+          },
+          {
+            id: "client-services-pie",
+            type: "pie",
+            title: "Services Breakdown",
+            configuration: {
+              dataSource: "appointments",
+              dimension: "by_service",
+              metric: "count",
+            },
+            layout: { x: 0, y: 10, w: 6, h: 4 },
+          },
+          {
+            id: "client-status-pie",
+            type: "pie",
+            title: "Appointments by Status",
+            configuration: {
+              dataSource: "appointments",
+              dimension: "by_status",
+              metric: "count",
+            },
+            layout: { x: 6, y: 10, w: 6, h: 4 },
+          },
+        ],
+      });
+    }
+
     if (!ownerId || !businessId)
       return res.status(400).json({
         errorCode: "MISSING_BUSINESS_CONTEXT",

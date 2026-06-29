@@ -51,6 +51,8 @@ const serializeAppointment = (appointment) => {
     _id: appointment._id,
     businessName: appointment.business?.businessName,
     businessId: appointment.business?._id,
+    businessPhone: appointment.business?.phone,
+    businessEmail: appointment.business?.email,
     serviceName,
     servicePrice: isWorkBlock ? undefined : appointment.service?.price,
     serviceDuration: isWorkBlock
@@ -849,7 +851,7 @@ export const getAppointmentById = async (req, res, next) => {
       .populate("business", "businessName phone")
       .populate("locationId", "name address")
       .populate("service", "name duration price")
-      .populate("staff", "firstName lastName email")
+      .populate("staff", "firstName lastName email phone")
       .populate("client", "email firstName lastName phone");
 
     if (!appointment) {
@@ -894,6 +896,13 @@ export const deleteAppointment = async (req, res, next) => {
       }
     } else if (userRole === "staff") {
       if (appointment.staff.toString() !== userId) {
+        return res.json({
+          errorCode: "UNAUTHORIZED_ACTION",
+          message: "Unauthorized to delete this appointment.",
+        });
+      }
+    } else if (userRole === "personal") {
+      if (!appointment.client || appointment.client.toString() !== userId) {
         return res.json({
           errorCode: "UNAUTHORIZED_ACTION",
           message: "Unauthorized to delete this appointment.",

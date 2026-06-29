@@ -449,7 +449,8 @@ const getClientsAnalytics = async (baseMatch, dimension, groupBy) => {
 export const getAnalytics = async (req, res) => {
   try {
     const businessId = req.user?.businessId;
-    if (!businessId) {
+    const userRole = req.user?.role;
+    if (userRole !== "personal" && !businessId) {
       return res.status(400).json({ 
         errorCode: "MISSING_BUSINESS_CONTEXT",
         message: "Missing business context." 
@@ -470,12 +471,17 @@ export const getAnalytics = async (req, res) => {
     } = req.query;
 
     const { startDate, endDate } = getTimeRange(period, from, to);
-    const business = new mongoose.Types.ObjectId(businessId);
     
     const baseMatch = {
-      business: { $in: [business, business.toString()] },
       ...(status ? { status } : {}),
     };
+
+    if (userRole === "personal") {
+      baseMatch.client = new mongoose.Types.ObjectId(req.user.id);
+    } else {
+      const business = new mongoose.Types.ObjectId(businessId);
+      baseMatch.business = { $in: [business, business.toString()] };
+    }
     
     if (startDate && endDate) {
       baseMatch["appointmentTime.start"] = { $gte: startDate, $lte: endDate };
